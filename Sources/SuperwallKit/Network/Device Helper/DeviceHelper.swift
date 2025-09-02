@@ -14,14 +14,14 @@ import CoreTelephony
 import StoreKit
 
 class DeviceHelper {
-  var locale: String {
+  var localeIdentifier: String {
     let localeIdentifier = factory.makeLocaleIdentifier()
     return localeIdentifier ?? Locale.autoupdatingCurrent.identifier
   }
 
-  var preferredLocale: String {
+  var preferredLocaleIdentifier: String {
     guard let preferredIdentifier = Locale.preferredLanguages.first else {
-      return locale
+      return localeIdentifier
     }
     return Locale(identifier: preferredIdentifier).identifier
   }
@@ -242,7 +242,7 @@ class DeviceHelper {
 
   private let appInstallDate: Date? = {
     guard let urlToDocumentsFolder = FileManager.default.urls(
-      for: .documentDirectory,
+      for: .applicationSupportDirectory,
       in: .userDomainMask
     ).last else {
       return nil
@@ -515,8 +515,8 @@ class DeviceHelper {
       appVersionPadded: appVersionPadded,
       osVersion: osVersion,
       deviceModel: model,
-      deviceLocale: locale,
-      preferredLocale: preferredLocale,
+      deviceLocale: localeIdentifier,
+      preferredLocale: preferredLocaleIdentifier,
       deviceLanguageCode: languageCode,
       preferredLanguageCode: preferredLanguageCode,
       regionCode: regionCode,
@@ -556,7 +556,9 @@ class DeviceHelper {
       capabilities: capabilitiesConfig.namesCommaSeparated(),
       capabilitiesConfig: capabilitiesConfig.toJson(),
       platformWrapper: platformWrapper,
-      platformWrapperVersion: platformWrapperVersion
+      platformWrapperVersion: platformWrapperVersion,
+      swiftVersion: currentSwiftVersion(),
+      compilerVersion: currentCompilerVersion()
     )
 
     var deviceDictionary = template.toDictionary()
@@ -582,6 +584,8 @@ class DeviceHelper {
       let properties = await receiptManager.getExperimentalDeviceProperties()
       deviceDictionary.merge(properties) { current, _ in current }
     }
+
+    deviceDictionary["appTransactionId"] = ReceiptManager.appTransactionId
 
     return deviceDictionary
   }

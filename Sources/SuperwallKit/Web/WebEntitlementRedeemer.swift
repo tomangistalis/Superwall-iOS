@@ -4,7 +4,7 @@
 //
 //  Created by Yusuf Tör on 12/03/2025.
 //
-// swiftlint:disable function_body_length cyclomatic_complexity type_body_length
+// swiftlint:disable function_body_length type_body_length trailing_closure
 
 import UIKit
 import Foundation
@@ -27,6 +27,7 @@ actor WebEntitlementRedeemer {
   enum RedeemType: CustomStringConvertible {
     case code(String)
     case existingCodes
+    case integrationAttributes
 
     var description: String {
       switch self {
@@ -34,6 +35,8 @@ actor WebEntitlementRedeemer {
         return "CODE"
       case .existingCodes:
         return "EXISTING_CODES"
+      case .integrationAttributes:
+        return "INTEGRATION_ATTRIBUTES"
       }
     }
 
@@ -79,102 +82,110 @@ actor WebEntitlementRedeemer {
     _ type: RedeemType,
     injectedConfig: Config? = nil
   ) async {
-    var config = injectedConfig
-
-    if config == nil {
-      let configState = factory.makeConfigState()
-      config = try? await configState
-        .compactMap { $0.getConfig() }
-        .throwableAsync()
-    }
-
-    guard let config = config else {
-      return
-    }
-    if config.web2appConfig == nil {
-      return
-    }
-
-
+    // Prepare data to redeem
     let superwall = superwall ?? Superwall.shared
     let latestRedeemResponse = storage.get(LatestRedeemResponse.self)
 
-    do {
-      var allCodes = latestRedeemResponse?.allCodes ?? []
+    var allCodes = latestRedeemResponse?.allCodes ?? []
 
-      switch type {
-      case .code(let code):
-        // If redeeming a code, add it to list of existing codes,
-        // marking as first redemption or not.
-        var isFirstRedemption = true
+    switch type {
+    case .code(let code):
+      // If redeeming a code, add it to list of existing codes,
+      // marking as first redemption or not.
+      var isFirstRedemption = true
 
-        if !allCodes.isEmpty {
-          // If we have codes, isFirstRedemption is false if we already have the code
-          isFirstRedemption = !allCodes.contains(where: { $0.code == code })
-        }
-
-        let redeemable = Redeemable(
-          code: code,
-          isFirstRedemption: isFirstRedemption
-        )
-        allCodes.insert(redeemable)
-
-        if let paywallVc = superwall.paywallViewController {
-          let trackedEvent = await InternalSuperwallEvent.Restore(
-            state: .start,
-            paywallInfo: paywallVc.info
-          )
-          await superwall.track(trackedEvent)
-        }
-      case .existingCodes:
-        break
+      if !allCodes.isEmpty {
+        // If we have codes, isFirstRedemption is false if we already have the code
+        isFirstRedemption = !allCodes.contains { $0.code == code }
       }
 
-      let request = await RedeemRequest(
-        deviceId: factory.makeDeviceId(),
-        appUserId: factory.makeAppUserId(),
-        aliasId: factory.makeAliasId(),
-        codes: allCodes,
-        receipts: receiptManager.getTransactionReceipts()
+      let redeemable = Redeemable(
+        code: code,
+        isFirstRedemption: isFirstRedemption
       )
+      allCodes.insert(redeemable)
 
+      if let paywallVc = superwall.paywallViewController {
+        let trackedEvent = await InternalSuperwallEvent.Restore(
+          state: .start,
+          paywallInfo: paywallVc.info
+        )
+        await superwall.track(trackedEvent)
+      }
+    case .existingCodes,
+      .integrationAttributes:
+      break
+    }
+
+    let attributes = storage.get(IntegrationAttributes.self) ?? [:]
+
+    // Create request to redeem
+    let request = await RedeemRequest(
+      metadata: JSON(attributes),
+      deviceId: factory.makeDeviceId(),
+      appUserId: factory.makeAppUserId(),
+      aliasId: factory.makeAliasId(),
+      codes: allCodes,
+      receipts: receiptManager.getTransactionReceipts(),
+      appTransactionId: ReceiptManager.appTransactionId
+    )
+
+    switch type {
+    case .code,
+      .existingCodes:
       let startEvent = InternalSuperwallEvent.Redemption(
         state: .start,
         type: type
       )
       await superwall.track(startEvent)
+    case .integrationAttributes:
+      break
+    }
 
-      switch type {
-      case .code:
-        await delegate.willRedeemLink()
-      case .existingCodes:
-        break
+    // Close safari if open and show spinner, then call delegate
+    switch type {
+    case .code:
+      await MainActor.run {
+        superwall.paywallViewController?.loadingState = .manualLoading
+        superwall.paywallViewController?.closeSafari()
       }
+      await delegate.willRedeemLink()
+    case .existingCodes,
+      .integrationAttributes:
+      break
+    }
 
+    do {
+      // Redeem
       let response = try await network.redeemEntitlements(request: request)
 
       storage.save(Date(), forType: LastWebEntitlementsFetchDate.self)
 
-      let completeEvent = InternalSuperwallEvent.Redemption(
-        state: .complete,
-        type: type
-      )
-      await superwall.track(completeEvent)
+      switch type {
+      case .code,
+        .existingCodes:
+        let completeEvent = InternalSuperwallEvent.Redemption(
+          state: .complete,
+          type: type
+        )
+        await superwall.track(completeEvent)
+      case .integrationAttributes:
+        break
+      }
 
-      // Sets the subscription status internally if no external PurchaseController
       let deviceEntitlements = entitlementsInfo.activeDeviceEntitlements
       let allEntitlements = deviceEntitlements.union(response.entitlements)
 
+      // Get entitlements of products from paywall.
+      var paywallEntitlements: Set<Entitlement> = []
       if case .code = type,
         let paywallVc = superwall.paywallViewController {
-        // Get entitlements of products from paywall.
-        var paywallEntitlements: Set<Entitlement> = []
         for id in await paywallVc.info.productIds {
           paywallEntitlements.formUnion(Superwall.shared.entitlements.byProductId(id))
         }
 
         // If the restored entitlements cover the paywall entitlements,
-        // track successful restore.
+        // track successful restore
         if paywallEntitlements.subtracting(allEntitlements).isEmpty {
           let trackedEvent = await InternalSuperwallEvent.Restore(
             state: .complete,
@@ -183,11 +194,6 @@ actor WebEntitlementRedeemer {
           await superwall.track(trackedEvent)
 
           await paywallVc.webView.messageHandler.handle(.restoreComplete)
-
-          let superwallOptions = factory.makeSuperwallOptions()
-          if superwallOptions.paywalls.automaticallyDismiss {
-            await superwall.dismiss(paywallVc, result: .restored)
-          }
         } else {
           await trackRestorationFailure(
             paywallViewController: paywallVc,
@@ -204,19 +210,77 @@ actor WebEntitlementRedeemer {
         superwall: superwall
       )
 
-      // Call the delegate if user try to redeem a code
+      // Call the delegate if user try to redeem a code,
+      // then close the paywall.
       if case let .code(code) = type {
         if let codeResult = response.results.first(where: { $0.code == code }) {
-          await delegate.didRedeemLink(result: codeResult)
+          let superwallOptions = factory.makeSuperwallOptions()
+          let showConfirmation = superwallOptions.paywalls.shouldShowWebPurchaseConfirmationAlert
+
+          func afterRedeem() async {
+            if let paywallVc = superwall.paywallViewController,
+              paywallEntitlements.subtracting(allEntitlements).isEmpty {
+              if superwallOptions.paywalls.automaticallyDismiss {
+                await superwall.dismiss(paywallVc, result: .restored)
+              }
+            }
+
+            await MainActor.run {
+              superwall.paywallViewController?.loadingState = .ready
+            }
+            await self.delegate.didRedeemLink(result: codeResult)
+          }
+
+          if showConfirmation {
+            let title = LocalizationLogic
+              .localizedBundle()
+              .localizedString(
+                forKey: "purchase_success_title",
+                value: nil,
+                table: nil
+              )
+            let message = LocalizationLogic
+              .localizedBundle()
+              .localizedString(
+                forKey: "purchase_success_message",
+                value: nil,
+                table: nil
+              )
+            let closeActionTitle = LocalizationLogic
+              .localizedBundle()
+              .localizedString(
+                forKey: "purchase_success_action_title",
+                value: nil,
+                table: nil
+              )
+
+            await superwall.paywallViewController?.presentAlert(
+              title: title,
+              message: message,
+              closeActionTitle: closeActionTitle,
+              onClose: {
+                Task {
+                  await afterRedeem()
+                }
+              }
+            )
+          } else {
+            await afterRedeem()
+          }
         }
       }
     } catch {
-      let event = InternalSuperwallEvent.Redemption(
-        state: .fail,
-        type: type
-      )
-      await superwall.track(event)
-
+      switch type {
+      case .code,
+        .existingCodes:
+        let event = InternalSuperwallEvent.Redemption(
+          state: .fail,
+          type: type
+        )
+        await superwall.track(event)
+      case .integrationAttributes:
+        break
+      }
 
       // Call the delegate if user try to redeem a code
       if case let .code(code) = type {
@@ -236,13 +300,16 @@ actor WebEntitlementRedeemer {
         )
         redemptions.append(errorResult)
 
+        await MainActor.run {
+          superwall.paywallViewController?.loadingState = .ready
+        }
         await delegate.didRedeemLink(result: errorResult)
       }
 
       Logger.debug(
         logLevel: .error,
         scope: .webEntitlements,
-        message: "Failed to redeem purchase token",
+        message: "Failed to redeem",
         info: [:]
       )
     }
@@ -276,14 +343,21 @@ actor WebEntitlementRedeemer {
     }
   }
 
-  func pollWebEntitlements(config: Config? = nil) async {
-    guard let entitlementsMaxAge = config?.web2appConfig?.entitlementsMaxAge ?? factory.makeEntitlementsMaxAge() else {
-      return
-    }
-
-    if let lastFetchedWebEntitlementsAt = storage.get(LastWebEntitlementsFetchDate.self) {
-      let timeElapsed = Date().timeIntervalSince(lastFetchedWebEntitlementsAt)
-      guard timeElapsed > entitlementsMaxAge else {
+  func pollWebEntitlements(
+    config: Config? = nil,
+    isFirstTime: Bool = false
+  ) async {
+    if !isFirstTime {
+      if let entitlementsMaxAge = config?.web2appConfig?.entitlementsMaxAge ?? factory.makeEntitlementsMaxAge() {
+        if let lastFetchedWebEntitlementsAt = storage.get(LastWebEntitlementsFetchDate.self) {
+          let timeElapsed = Date().timeIntervalSince(lastFetchedWebEntitlementsAt)
+          // Only proceed if a certain amount of time has elapsed
+          guard timeElapsed > entitlementsMaxAge else {
+            return
+          }
+        }
+      } else {
+        // Don't proceed at all if there's no web2app config
         return
       }
     }

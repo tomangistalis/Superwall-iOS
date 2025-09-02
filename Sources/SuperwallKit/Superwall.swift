@@ -61,6 +61,35 @@ public final class Superwall: NSObject, ObservableObject {
     }
   }
 
+  /// Defines the products to override on any paywall by product name.
+  ///
+  /// You can override one or more products of your choosing. For example, this is how you would override the first and third product on a paywall:
+  ///
+  /// ```
+  ///  overrideProductsByName: [
+  ///    "primary": "firstProductId",
+  ///    "tertiary": thirdProductId
+  ///  ]
+  /// ```
+  ///
+  /// This assumes that your products have the names "primary" and "tertiary" in the Paywall Editor.
+  public var overrideProductsByName: [String: String]? {
+    get {
+      return options.paywalls.overrideProductsByName
+    }
+    set {
+      options.paywalls.overrideProductsByName = newValue
+
+      Task {
+        let overrides = newValue?
+          .map { ProductOverride.byId($0.value) }
+        if let overrides = overrides {
+          await dependencyContainer.storeKitManager.preloadOverrides(overrides)
+        }
+      }
+    }
+  }
+
   /// Sets the device locale identifier to use when evaluating audience filters and getting localized paywalls.
   ///
   /// This defaults to the `autoupdatingCurrent` locale identifier. However, you can set
@@ -86,6 +115,11 @@ public final class Superwall: NSObject, ObservableObject {
   /// Properties stored about the user, set using ``setUserAttributes(_:)``.
   public var userAttributes: [String: Any] {
     return dependencyContainer.identityManager.userAttributes
+  }
+
+  /// Attribution properties set using ``setIntegrationAttributes(_:)``.
+  public var integrationAttributes: [String: String] {
+    return dependencyContainer.attributionFetcher.integrationAttributes
   }
 
   /// The current user's id.
@@ -263,6 +297,10 @@ public final class Superwall: NSObject, ObservableObject {
 
   /// Used to serially execute register calls.
   var previousRegisterTask: Task<Void, Never>?
+
+  /// The integration attributes to send to the server when `appTransactionId`
+  /// is available.
+  var enqueuedIntegrationAttributes: [IntegrationAttribute: String?]?
 
   // MARK: - Private Functions
   init(dependencyContainer: DependencyContainer = DependencyContainer()) {
@@ -681,6 +719,34 @@ public final class Superwall: NSObject, ObservableObject {
     }
   }
 
+  /// Sets attributes for third-party integrations.
+  ///
+  /// - Parameter props: A dictionary keyed by ``IntegrationAttribute`` specifying
+  /// properties to associate with the user or events for the given provider.
+  public func setIntegrationAttributes(_ props: [IntegrationAttribute: String?]) {
+    guard let appTransactionId = ReceiptManager.appTransactionId else {
+      enqueuedIntegrationAttributes = props
+      return
+    }
+    enqueuedIntegrationAttributes = nil
+
+    let props = props.reduce(into: [String: String?]()) { result, pair in
+      result[pair.key.description] = pair.value
+    }
+
+    dependencyContainer.attributionFetcher.mergeIntegrationAttributes(
+      attributes: props,
+      appTransactionId: appTransactionId
+    )
+    setUserAttributes(props)
+  }
+
+  func dequeueIntegrationAttributes() {
+    if let enqueuedAttribution = enqueuedIntegrationAttributes {
+      setIntegrationAttributes(enqueuedAttribution)
+    }
+  }
+
   // MARK: - Deep Links
   /// Handles a deep link sent to your app to open a preview of your paywall.
   ///
@@ -707,7 +773,7 @@ public final class Superwall: NSObject, ObservableObject {
   ///
   /// - Parameters:
   ///   - url: The URL of the deep link.
-  /// - Returns: A `Bool` that is `true` if the deep link was handled.
+  /// - Returns: A `Bool` that is `true` if the deep link was handled. If called before ``Superwall/configure(apiKey:purchaseController:options:completion:)`` completes then it'll always return `true`.
   @discardableResult
   public static func handleDeepLink(_ url: URL) -> Bool {
     if Superwall.isInitialized,

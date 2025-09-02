@@ -2,6 +2,72 @@
 
 The changelog for `SuperwallKit`. Also see the [releases](https://github.com/superwall/Superwall-iOS/releases) on GitHub.
 
+## 4.8.0
+
+### Enhancements
+
+- Adds ability to specify a custom height and corner radius for the drawer presentation style.
+- Adds ability to grant an entitlement to anyone.
+- Adds `Superwall.shared.setIntegrationAttributes(_:)` which allows you to set attributes for third-party integrations.
+- Adds `Superwall.shared.integrationAttributes` to get the attributes you've set.
+- Adds the ability to ask for an App Store review from a paywall tap action.
+- Adds a popup presentation style.
+- Adds product retrying if StoreKit 2 products fail to fetch.
+
+### Fixes
+
+- Fixes issue with tracking `demandScore` and `demandTier` on paywall open.
+
+## 4.7.0
+
+### Enhancements
+
+- Adds `placementsInX` which can be used in audience filters. This means you can make a filter that will only fire if a placement has been fired X times in the past hour/day/week/year/since install.
+- Updates Superscript version to 1.0.2. View the original Rust release changelog [here](https://github.com/superwall/superscript/releases/tag/1.0.2).
+- Adds `swiftVersion` and `compilerVersion` to the device attributes.
+
+### Fixes
+
+- Makes sure web entitlements are always redeemed the first time the app loads from a cold start.
+- Fixes issue where the Superwall config wasn't timing out and falling back to the cached config after 1 second.
+
+## 4.6.0
+
+### Enhancements
+
+- Adds the `PaywallOption` `overrideProductsByName`, which can be used to globally override products on any paywall that have a given name. This can also be set after configure has been called by setting `Superwall.shared.overrideProductsByName`.
+- Adds the `PaywallOption` `shouldShowWebPurchaseConfirmationAlert`, which shows a localized alert confirming a successful purchase via web checkout. Defaults to `true`.
+
+### Fixes
+
+- Fixes issue where deep links passed to the SDK before configure completes aren’t handled after configure finishes.
+
+## 4.5.2
+
+### Fixes
+
+- Replace `UIApplication.shared` with `sharedApplication` accessed via KVC so that SuperwallKit can be used in app extensions.
+- Fixes issue where the paywall debugger would crash when viewing template variables if products weren't loaded.
+- Fixes issue where an in-app web checkout wouldn't close Safari after purchase.
+
+## 4.5.1
+
+### Fixes
+
+- Fixes issue where `webViewLoad_fail` events weren't being tracked.
+
+## 4.5.0
+
+### Enhancements
+
+- Adds `handleSuperwallDeepLink(_:pathComponents:queryParameters:)` to the `SuperwallDelegate`. This is called when all deep links from the web checkout are handled. This link may arrive as either a universal link (`https://yoursubdomain.superwall.app/app-link/...`) or a custom URL scheme (`subdomain://yoursubdomain.superwall.app/app-link/...`).
+- Adds `url`, `path`, `pathExtension`, `lastPathComponent`, `host`, `query`, and `fragment` to the `deepLink_open` event, which you can use in audience filters.
+
+### Fixes
+
+- Fixes a race condition when identifying and then immediately getting user attributes.
+- Removes usage of private API `LSApplicationWorkspace`.
+
 ## 4.4.2
 
 ### Enhancements
@@ -11,6 +77,7 @@ The changelog for `SuperwallKit`. Also see the [releases](https://github.com/sup
 ### Fixes
 
 - Fix for old versions of Xcode not building due to not supporting `.winBack` transaction offer types.
+- Fixes an issue where the paywall could be presented from the wrong scene in multi-window apps.
 
 ## 4.4.1
 

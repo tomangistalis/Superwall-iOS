@@ -21,6 +21,7 @@ protocol PaywallMessageHandlerDelegate: AnyObject {
   func openDeepLink(_ url: URL)
   func presentSafariInApp(_ url: URL)
   func presentSafariExternal(_ url: URL)
+  func requestReview(type: ReviewType)
 }
 
 @MainActor
@@ -154,6 +155,8 @@ final class PaywallMessageHandler: WebEventDelegate {
       handleCustomEvent(name)
     case let .customPlacement(name: name, params: params):
       handleCustomPlacement(name: name, params: params)
+    case .requestStoreReview(let reviewType):
+      requestReview(type: reviewType)
     }
   }
 
@@ -317,7 +320,7 @@ final class PaywallMessageHandler: WebEventDelegate {
         "var css = '*{-webkit-touch-callout:none;-webkit-user-select:none}'; var head = document.head || document.getElementsByTagName('head')[0]; var style = document.createElement('style'); style.type = 'text/css'; style.appendChild(document.createTextNode(css)); head.appendChild(style);"
       self.delegate?.webView.evaluateJavaScript(preventSelection)
 
-      let preventZoom: String =
+      let preventZoom =
         "var meta = document.createElement('meta');" + "meta.name = 'viewport';"
         + "meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';"
         + "var head = document.getElementsByTagName('head')[0];" + "head.appendChild(meta);"
@@ -367,6 +370,10 @@ final class PaywallMessageHandler: WebEventDelegate {
     )
     hapticFeedback()
     delegate?.openDeepLink(url)
+  }
+
+  private func requestReview(type: ReviewType) {
+    delegate?.requestReview(type: type)
   }
 
   private func restorePurchases() {

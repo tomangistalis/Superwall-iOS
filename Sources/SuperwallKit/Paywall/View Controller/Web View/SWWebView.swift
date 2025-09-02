@@ -11,7 +11,6 @@ import WebKit
 
 protocol SWWebViewDelegate: AnyObject {
   var info: PaywallInfo { get }
-  func webViewDidFailProvisionalNavigation()
   func webViewDidFail()
 }
 
@@ -35,7 +34,11 @@ enum WebViewError: LocalizedError {
 class SWWebView: WKWebView {
   let messageHandler: PaywallMessageHandler
   let loadingHandler: SWWebViewLoadingHandler
-  weak var delegate: (SWWebViewDelegate & PaywallMessageHandlerDelegate)?
+  weak var delegate: (SWWebViewDelegate & PaywallMessageHandlerDelegate)? {
+    didSet {
+      self.loadingHandler.webViewDelegate = delegate
+    }
+  }
   private let wkConfig: WKWebViewConfiguration
   private let isMac: Bool
   private let isOnDeviceCacheEnabled: Bool
@@ -98,7 +101,6 @@ class SWWebView: WKWebView {
       configuration: wkConfig
     )
     self.loadingHandler.loadingDelegate = self
-    self.loadingHandler.webViewDelegate = delegate
 
     wkConfig.userContentController.add(
       RawWebMessageHandler(delegate: messageHandler),
