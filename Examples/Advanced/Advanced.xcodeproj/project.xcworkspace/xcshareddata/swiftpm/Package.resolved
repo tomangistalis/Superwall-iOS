@@ -6,8 +6,8 @@
         "repositoryURL": "https://github.com/RevenueCat/purchases-ios.git",
         "state": {
           "branch": null,
-          "revision": "334e4c6d711286744f1b9138934774f034c0a515",
-          "version": "5.35.1"
+          "revision": "155ea739f45f54189ca83ee9088b373c1415d98b",
+          "version": "5.64.0"
         }
       },
       {
@@ -15,8 +15,8 @@
         "repositoryURL": "https://github.com/superwall/Superscript-iOS",
         "state": {
           "branch": null,
-          "revision": "59227a3450de9b06857986bc317be387bca3ed4b",
-          "version": "1.0.2"
+          "revision": "711866edcb62dbd237c24ed3e5fa39fad0db639f",
+          "version": "1.0.13"
         }
       }
     ]

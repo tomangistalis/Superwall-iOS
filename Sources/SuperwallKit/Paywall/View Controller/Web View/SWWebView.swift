@@ -4,13 +4,14 @@
 //
 //  Created by Yusuf Tör on 03/03/2022.
 //
-// swiftlint:disable implicitly_unwrapped_optional function_body_length line_length
+// swiftlint:disable implicitly_unwrapped_optional function_body_length
 
 import Foundation
 import WebKit
 
 protocol SWWebViewDelegate: AnyObject {
   var info: PaywallInfo { get }
+  var isActive: Bool { get }
   func webViewDidFail()
 }
 
@@ -43,6 +44,9 @@ class SWWebView: WKWebView {
   private let isMac: Bool
   private let isOnDeviceCacheEnabled: Bool
   private var completion: ((Error?) -> Void)?
+  private let enableIframeNavigation: Bool
+  private var activeProcessTerminationRetryCount = 0
+  private let maxActiveProcessTerminationRetries = 3
 
   init(
     isMac: Bool,
@@ -54,14 +58,20 @@ class SWWebView: WKWebView {
     self.messageHandler = messageHandler
     self.isOnDeviceCacheEnabled = isOnDeviceCacheEnabled
     let featureFlags = factory.makeFeatureFlags()
+    self.enableIframeNavigation = featureFlags?.enableIframeNavigation ?? false
 
-    self.loadingHandler = SWWebViewLoadingHandler(enableMultiplePaywallUrls: featureFlags?.enableMultiplePaywallUrls == true)
+    self.loadingHandler = SWWebViewLoadingHandler(
+      enableMultiplePaywallUrls: featureFlags?.enableMultiplePaywallUrls == true
+    )
 
     let config = WKWebViewConfiguration()
     config.allowsInlineMediaPlayback = true
     config.allowsAirPlayForMediaPlayback = true
     config.allowsPictureInPictureMediaPlayback = true
     config.mediaTypesRequiringUserActionForPlayback = []
+
+    // Register custom URL scheme handler for local files (videos, images, etc.)
+    config.setURLSchemeHandler(LocalFileSchemeHandler(), forURLScheme: LocalFileSchemeHandler.scheme)
 
     if featureFlags?.enableSuppressesIncrementalRendering == true {
       config.suppressesIncrementalRendering = true
@@ -138,6 +148,7 @@ class SWWebView: WKWebView {
   }
 
   func loadURL(from paywall: Paywall) async {
+    activeProcessTerminationRetryCount = 0
     let didLoad = await loadingHandler.loadURL(
       paywallUrlConfig: paywall.urlConfig,
       paywallUrl: paywall.url
@@ -186,36 +197,48 @@ extension SWWebView: SWWebViewLoadingDelegate {
 extension SWWebView: WKNavigationDelegate {
   func webView(
     _ webView: WKWebView,
-    decidePolicyFor navigationResponse: WKNavigationResponse
-  ) async -> WKNavigationResponsePolicy {
+    decidePolicyFor navigationResponse: WKNavigationResponse,
+    decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+  ) {
     guard let statusCode = (navigationResponse.response as? HTTPURLResponse)?.statusCode else {
       // if there's no http status code to act on, exit and allow navigation
-      return .allow
+      decisionHandler(.allow)
+      return
     }
 
     // Track paywall errors
     if statusCode >= 400 {
       completion?(WebViewError.network(statusCode))
-      return .cancel
+      decisionHandler(.cancel)
+      return
     }
 
-    return .allow
+    decisionHandler(.allow)
   }
 
   func webView(
     _ webView: WKWebView,
-    decidePolicyFor navigationAction: WKNavigationAction
-  ) async -> WKNavigationActionPolicy {
+    decidePolicyFor navigationAction: WKNavigationAction,
+    decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+  ) {
     if webView.isLoading {
-      return .allow
+      decisionHandler(.allow)
+      return
     }
     if navigationAction.navigationType == .reload {
-      return .allow
+      decisionHandler(.allow)
+      return
     }
-    return .cancel
+    if enableIframeNavigation,
+      navigationAction.targetFrame?.isMainFrame == false {
+      decisionHandler(.allow)
+      return
+    }
+    decisionHandler(.cancel)
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    activeProcessTerminationRetryCount = 0
     completion?(nil)
   }
 
@@ -233,5 +256,30 @@ extension SWWebView: WKNavigationDelegate {
     withError error: Error
   ) {
     completion?(error)
+  }
+
+  func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+    if delegate?.isActive == true,
+      activeProcessTerminationRetryCount < maxActiveProcessTerminationRetries {
+      activeProcessTerminationRetryCount += 1
+      webView.reload()
+    } else if delegate?.isActive == true {
+      loadingHandler.didFailToLoad = true
+      delegate?.webViewDidFail()
+    } else {
+      loadingHandler.didFailToLoad = true
+    }
+
+    Task {
+      guard let paywallInfo = delegate?.info else {
+        return
+      }
+
+      let processTerminated = InternalSuperwallEvent.PaywallWebviewLoad(
+        state: .processTerminated,
+        paywallInfo: paywallInfo
+      )
+      await Superwall.shared.track(processTerminated)
+    }
   }
 }

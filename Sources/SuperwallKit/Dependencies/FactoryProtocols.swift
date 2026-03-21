@@ -78,8 +78,6 @@ protocol ConfigManagerFactory: AnyObject {
     withId paywallId: String?,
     isDebuggerLaunched: Bool
   ) -> Paywall?
-
-  func makeConfigManager() -> ConfigManager?
 }
 
 protocol IdentityFactory: AnyObject {
@@ -154,9 +152,11 @@ protocol UserAttributesPlacementFactory: AnyObject {
 }
 
 protocol ReceiptFactory: AnyObject {
-  func loadPurchasedProducts() async
+  func loadPurchasedProducts(config: Config?) async
   func refreshSK1Receipt() async
   func isFreeTrialAvailable(for product: StoreProduct) async -> Bool
+  var isTestMode: Bool { get }
+  var testModeFreeTrialOverride: FreeTrialOverride { get }
 }
 
 protocol ConfigAttributesFactory: AnyObject {
@@ -164,6 +164,7 @@ protocol ConfigAttributesFactory: AnyObject {
 }
 
 protocol WebEntitlementFactory: AnyObject {
+  func makeIsContainerReady() -> Bool
   func makeDeviceId() -> String
   func makeAppUserId() -> String?
   func makeAliasId() -> String

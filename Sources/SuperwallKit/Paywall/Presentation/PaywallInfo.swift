@@ -131,6 +131,14 @@ public final class PaywallInfo: NSObject {
   /// The state of the paywall, updated on paywall did dismiss.
   public let state: [String: Any]
 
+  /// Indicates how intro offer eligiblity should be treat on products. Defaults to
+  /// `.automatic`.
+  public let introOfferEligibility: IntroOfferEligibility
+
+  /// A unique identifier for this paywall presentation, used to correlate all events
+  /// within a single presentation lifecycle.
+  public let presentationId: String?
+
   init(
     databaseId: String,
     identifier: String,
@@ -140,6 +148,7 @@ public final class PaywallInfo: NSObject {
     url: URL,
     products: [Product],
     productIds: [String],
+    presentationId: String?,
     fromPlacementData placementData: PlacementData?,
     responseLoadStartTime: Date?,
     responseLoadCompleteTime: Date?,
@@ -163,7 +172,8 @@ public final class PaywallInfo: NSObject {
     surveys: [Survey],
     presentation: PaywallPresentationInfo,
     isScrollEnabled: Bool,
-    state: [String: Any]
+    state: [String: Any],
+    introOfferEligibility: IntroOfferEligibility
   ) {
     self.databaseId = databaseId
     self.identifier = identifier
@@ -177,6 +187,7 @@ public final class PaywallInfo: NSObject {
     self.presentationSourceType = presentationSourceType
     self.experiment = experiment
     self.paywalljsVersion = paywalljsVersion
+    self.presentationId = presentationId
     self.products = products
     self.productIds = productIds
     self.isFreeTrialAvailable = isFreeTrialAvailable
@@ -231,6 +242,7 @@ public final class PaywallInfo: NSObject {
     self.closeReason = closeReason
     self.isScrollEnabled = isScrollEnabled
     self.state = state
+    self.introOfferEligibility = introOfferEligibility
   }
 
   func placementParams(
@@ -264,7 +276,9 @@ public final class PaywallInfo: NSObject {
       "build_id": buildId,
       "close_reason": closeReason.description,
       "is_scroll_enabled": isScrollEnabled as Any,
-      "app_transaction_id": ReceiptManager.appTransactionId as Any
+      "intro_offer_eligibility": introOfferEligibility.description,
+      "app_transaction_id": ReceiptManager.appTransactionId as Any,
+      "presentation_id": presentationId as Any
     ]
 
     var loadingVars: [String: Any] = [:]
@@ -349,6 +363,7 @@ extension PaywallInfo: Stubbable {
       url: URL(string: "https://superwall.com")!,
       products: [],
       productIds: [],
+      presentationId: nil,
       fromPlacementData: nil,
       responseLoadStartTime: nil,
       responseLoadCompleteTime: nil,
@@ -375,7 +390,8 @@ extension PaywallInfo: Stubbable {
         delay: 0
       ),
       isScrollEnabled: true,
-      state: [:]
+      state: [:],
+      introOfferEligibility: .automatic
     )
   }
 
@@ -390,6 +406,7 @@ extension PaywallInfo: Stubbable {
       url: URL(string: "https://superwall.com")!,
       products: [],
       productIds: [],
+      presentationId: nil,
       fromPlacementData: nil,
       responseLoadStartTime: nil,
       responseLoadCompleteTime: nil,
@@ -424,7 +441,8 @@ extension PaywallInfo: Stubbable {
         delay: 0
       ),
       isScrollEnabled: true,
-      state: [:]
+      state: [:],
+      introOfferEligibility: .automatic
     )
   }
 }

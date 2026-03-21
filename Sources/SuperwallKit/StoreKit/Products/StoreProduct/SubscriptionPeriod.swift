@@ -92,6 +92,15 @@ public final class SubscriptionPeriod: NSObject, Sendable {
       .normalized()
   }
 
+  static func from(stripeSubscriptionPeriod: StripeProductType.StripeSubscriptionPeriod) -> SubscriptionPeriod? {
+    guard let unit = SubscriptionPeriod.Unit.from(stripePeriodUnit: stripeSubscriptionPeriod.unit) else {
+      return nil
+    }
+
+    return .init(value: stripeSubscriptionPeriod.value, unit: unit)
+      .normalized()
+  }
+
   /// This function simplifies large numbers of days into months and large numbers
   /// of months into years if there are no leftover units after the conversion.
   ///
@@ -122,8 +131,8 @@ extension SubscriptionPeriod {
     let periodsPerDay: Decimal = {
       switch self.unit {
       case .day: return 1
-      case .week: return 7
-      case .month: return 30
+      case .week: return Decimal(365) / Decimal(52)
+      case .month: return Decimal(365) / Decimal(12)
       case .year: return 365
       }
     }() * Decimal(value)
@@ -134,25 +143,25 @@ extension SubscriptionPeriod {
   }
 
   func pricePerWeek(withTotalPrice price: Decimal) -> Decimal {
-    let periodsPerDay: Decimal = {
+    let periodsPerWeek: Decimal = {
       switch self.unit {
-      case .day: return 1 / 7
+      case .day: return Decimal(52) / Decimal(365)
       case .week: return 1
-      case .month: return 4
+      case .month: return Decimal(52) / Decimal(12)
       case .year: return 52
       }
     }() * Decimal(value)
 
     return (price as NSDecimalNumber)
-      .dividing(by: periodsPerDay as NSDecimalNumber,
+      .dividing(by: periodsPerWeek as NSDecimalNumber,
         withBehavior: Self.roundingBehavior) as Decimal
   }
 
   func pricePerMonth(withTotalPrice price: Decimal) -> Decimal {
     let periodsPerMonth: Decimal = {
       switch self.unit {
-      case .day: return 1 / 30
-      case .week: return 1 / 4
+      case .day: return Decimal(12) / Decimal(365)
+      case .week: return Decimal(12) / Decimal(52)
       case .month: return 1
       case .year: return 12
       }
@@ -188,6 +197,13 @@ extension SubscriptionPeriod {
   )
 }
 
+extension Decimal {
+  func roundedPrice() -> Decimal {
+    (self as NSDecimalNumber)
+      .rounding(accordingToBehavior: SubscriptionPeriod.roundingBehavior) as Decimal
+  }
+}
+
 private extension SubscriptionPeriod.Unit {
   static func from(sk1PeriodUnit: SK1Product.PeriodUnit) -> Self? {
     switch sk1PeriodUnit {
@@ -202,6 +218,16 @@ private extension SubscriptionPeriod.Unit {
   @available(iOS 15.0, tvOS 15.0, watchOS 8, *)
   static func from(sk2PeriodUnit: StoreKit.Product.SubscriptionPeriod.Unit) -> Self? {
     switch sk2PeriodUnit {
+    case .day: return .day
+    case .week: return .week
+    case .month: return .month
+    case .year: return .year
+    @unknown default: return nil
+    }
+  }
+
+  static func from(stripePeriodUnit: StripeProductType.StripeSubscriptionPeriod.Unit) -> Self? {
+    switch stripePeriodUnit {
     case .day: return .day
     case .week: return .week
     case .month: return .month

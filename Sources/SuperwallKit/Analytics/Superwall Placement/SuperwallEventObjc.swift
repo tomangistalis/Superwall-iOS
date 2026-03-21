@@ -4,6 +4,7 @@
 //
 //  Created by Yusuf Tör on 07/11/2022.
 //
+// swiftlint:disable file_length
 
 import Foundation
 
@@ -119,6 +120,9 @@ public enum SuperwallEventObjc: Int, CaseIterable {
   /// When the loading of a paywall's website falls back to a different CDN.
   case paywallWebviewLoadFallback
 
+  /// When the paywall's web view content process terminates.
+  case paywallWebviewProcessTerminated
+
   /// When the request to load the paywall's products started.
   case paywallProductsLoadStart
 
@@ -130,6 +134,9 @@ public enum SuperwallEventObjc: Int, CaseIterable {
 
   /// When the request to load the paywall's products has failed and is being retried.
   case paywallProductsLoadRetry
+
+  /// When the paywall's products are missing from the App Store.
+  case paywallProductsLoadMissingProducts
 
   /// Information about a paywall presentation request
   case paywallPresentationRequest
@@ -208,8 +215,50 @@ public enum SuperwallEventObjc: Int, CaseIterable {
   /// When a response from the network fails to decode.
   case networkDecodingFail
 
+  /// When the customer info did change.
+  case customerInfoDidChange
+
   /// When the integration attributes are set.
   case integrationAttributes
+
+  /// When a review is requested from the user.
+  case reviewRequested
+
+  /// When a permission is requested from a paywall.
+  case permissionRequested
+
+  /// When a permission is granted after being requested from a paywall.
+  case permissionGranted
+
+  /// When a permission is denied after being requested from a paywall.
+  case permissionDenied
+
+  /// When paywall preloading starts.
+  case paywallPreloadStart
+
+  /// When paywall preloading completes.
+  case paywallPreloadComplete
+
+  /// When a Stripe checkout session starts.
+  case stripeCheckoutStart
+
+  /// When a Stripe checkout form is submitted.
+  case stripeCheckoutSubmit
+
+  /// When a Stripe checkout session completes.
+  case stripeCheckoutComplete
+
+  /// When a Stripe checkout session fails.
+  case stripeCheckoutFail
+
+  /// When the test mode modal is opened.
+  case testModeModalOpen
+
+  /// When the test mode modal is closed.
+  case testModeModalClose
+
+  /// When a user navigates to a page in a multi-page paywall.
+  case paywallPageView
 
   public init(event: SuperwallEvent) {
     self = event.backingData.objcEvent
@@ -283,12 +332,16 @@ public enum SuperwallEventObjc: Int, CaseIterable {
       return "paywallWebviewLoad_timeout"
     case .paywallWebviewLoadFallback:
       return "paywallWebviewLoad_fallback"
+    case .paywallWebviewProcessTerminated:
+      return "paywallWebviewLoad_processTerminated"
     case .paywallProductsLoadStart:
       return "paywallProductsLoad_start"
     case .paywallProductsLoadFail:
       return "paywallProductsLoad_fail"
     case .paywallProductsLoadRetry:
       return "paywallProductsLoad_retry"
+    case .paywallProductsLoadMissingProducts:
+      return "paywallProductsLoad_missingProducts"
     case .paywallProductsLoadComplete:
       return "paywallProductsLoad_complete"
     case .paywallPresentationRequest:
@@ -341,8 +394,36 @@ public enum SuperwallEventObjc: Int, CaseIterable {
       return "enrichment_complete"
     case .networkDecodingFail:
       return "networkDecoding_fail"
+    case .customerInfoDidChange:
+      return "customerInfo_didChange"
     case .integrationAttributes:
       return "integration_attributes"
+    case .reviewRequested:
+      return "review_requested"
+    case .permissionRequested:
+      return "permission_requested"
+    case .permissionGranted:
+      return "permission_granted"
+    case .permissionDenied:
+      return "permission_denied"
+    case .paywallPreloadStart:
+      return "paywallPreload_start"
+    case .paywallPreloadComplete:
+      return "paywallPreload_complete"
+    case .stripeCheckoutStart:
+      return "stripeCheckout_start"
+    case .stripeCheckoutSubmit:
+      return "stripeCheckout_submit"
+    case .stripeCheckoutComplete:
+      return "stripeCheckout_complete"
+    case .stripeCheckoutFail:
+      return "stripeCheckout_fail"
+    case .testModeModalOpen:
+      return "testModeModal_open"
+    case .testModeModalClose:
+      return "testModeModal_close"
+    case .paywallPageView:
+      return "paywall_page_view"
     }
   }
 }

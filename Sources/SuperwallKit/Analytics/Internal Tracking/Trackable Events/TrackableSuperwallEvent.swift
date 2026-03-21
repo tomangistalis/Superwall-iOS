@@ -299,10 +299,54 @@ enum InternalSuperwallEvent {
       ]
       if case let .active(entitlements) = status {
         params += [
-          "active_entitlement_ids": entitlements.map(\.id).joined()
+          "active_entitlement_ids": entitlements.map(\.id).joined(separator: ",")
         ]
       }
       return params
+    }
+  }
+
+  struct CustomerInfoDidChange: TrackableSuperwallEvent {
+    let superwallEvent: SuperwallEvent = .customerInfoDidChange
+    var audienceFilterParams: [String: Any] = [:]
+    let fromCustomerInfo: CustomerInfo
+    let toCustomerInfo: CustomerInfo
+
+    private struct EntitlementsSnapshot: Encodable {
+      let entitlements: [Entitlement]
+      let isPlaceholder: Bool
+    }
+
+    func getSuperwallParameters() async -> [String: Any] {
+      let encoder = JSONEncoder()
+      encoder.dateEncodingStrategy = .iso8601
+
+      var fromJson = "{}"
+      var toJson = "{}"
+
+      let fromSnapshot = EntitlementsSnapshot(
+        entitlements: fromCustomerInfo.entitlements,
+        isPlaceholder: fromCustomerInfo.isPlaceholder
+      )
+      let toSnapshot = EntitlementsSnapshot(
+        entitlements: toCustomerInfo.entitlements,
+        isPlaceholder: toCustomerInfo.isPlaceholder
+      )
+
+      if let data = try? encoder.encode(fromSnapshot),
+        let jsonString = String(data: data, encoding: .utf8) {
+        fromJson = jsonString
+      }
+
+      if let data = try? encoder.encode(toSnapshot),
+        let jsonString = String(data: data, encoding: .utf8) {
+        toJson = jsonString
+      }
+
+      return [
+        "from": fromJson,
+        "to": toJson
+      ]
     }
   }
 
@@ -416,6 +460,40 @@ enum InternalSuperwallEvent {
       if let demandTier = demandTier {
         params["attr_demandTier"] = demandTier
       }
+      params["user_attributes"] = Superwall.shared.userAttributes
+      return params
+    }
+    var audienceFilterParams: [String: Any] {
+      return paywallInfo.audienceFilterParams()
+    }
+  }
+
+  struct PaywallPageView: TrackableSuperwallEvent {
+    var superwallEvent: SuperwallEvent {
+      return .paywallPageView(
+        paywallInfo: paywallInfo,
+        data: data
+      )
+    }
+    let paywallInfo: PaywallInfo
+    let data: PageViewData
+
+    func getSuperwallParameters() async -> [String: Any] {
+      var params = await paywallInfo.placementParams()
+      params["page_node_id"] = data.pageNodeId
+      params["flow_position"] = data.flowPosition
+      params["page_name"] = data.pageName
+      params["navigation_node_id"] = data.navigationNodeId
+      params["navigation_type"] = data.navigationType
+      if let previousPageNodeId = data.previousPageNodeId {
+        params["previous_page_node_id"] = previousPageNodeId
+      }
+      if let previousFlowPosition = data.previousFlowPosition {
+        params["previous_flow_position"] = previousFlowPosition
+      }
+      if let timeOnPreviousPageMs = data.timeOnPreviousPageMs {
+        params["time_on_previous_page_ms"] = timeOnPreviousPageMs
+      }
       return params
     }
     var audienceFilterParams: [String: Any] {
@@ -526,7 +604,7 @@ enum InternalSuperwallEvent {
     enum State {
       case start(StoreProduct)
       case fail(TransactionError)
-      case abandon(StoreProduct)
+      case abandon(StoreProduct?)
       case complete(StoreProduct, StoreTransaction?, TransactionType)
       case restore(RestoreType)
       case timeout
@@ -547,7 +625,7 @@ enum InternalSuperwallEvent {
         )
       case .abandon(let product):
         return .transactionAbandon(
-          product: product,
+          product: product ?? .blank(),
           paywallInfo: paywallInfo
         )
       case let .complete(product, model, type):
@@ -575,7 +653,8 @@ enum InternalSuperwallEvent {
     let transaction: StoreTransaction?
     let source: Source
     let isObserved: Bool
-    let storeKitVersion: SuperwallOptions.StoreKitVersion
+    let storeKitVersion: SuperwallOptions.StoreKitVersion?
+    var store: ProductStore = .appStore
     var demandScore: Int?
     var demandTier: String?
 
@@ -590,7 +669,9 @@ enum InternalSuperwallEvent {
       switch state {
       case .abandon(let product):
         var params = paywallInfo.audienceFilterParams()
-        params["abandoned_product_id"] = product.productIdentifier
+        if let product = product {
+          params["abandoned_product_id"] = product.productIdentifier
+        }
         return params
       default:
         return paywallInfo.audienceFilterParams()
@@ -605,10 +686,12 @@ enum InternalSuperwallEvent {
         storefrontId = await Storefront.current?.id ?? ""
       }
       var placementParams: [String: Any] = [
-        "store": "APP_STORE",
-        "source": source.rawValue,
-        "storekit_version": storeKitVersion.description
+        "store": store.description,
+        "source": source.rawValue
       ]
+      if let storeKitVersion = storeKitVersion {
+        placementParams["storekit_version"] = storeKitVersion.description
+      }
 
       switch state {
       case .restore:
@@ -630,10 +713,7 @@ enum InternalSuperwallEvent {
         if let demandTier = demandTier {
           placementParams["attr_demandTier"] = demandTier
         }
-        let appleSearchAttributes = Superwall.shared.userAttributes.filter {
-          $0.key.hasPrefix("apple_search_ads_")
-        }
-        placementParams += appleSearchAttributes
+        placementParams["user_attributes"] = Superwall.shared.userAttributes
         fallthrough
       case .start,
         .abandon,
@@ -736,6 +816,7 @@ enum InternalSuperwallEvent {
       case timeout
       case complete
       case fallback
+      case processTerminated
     }
     let state: State
 
@@ -751,6 +832,8 @@ enum InternalSuperwallEvent {
         return .paywallWebviewLoadComplete(paywallInfo: paywallInfo)
       case .fallback:
         return .paywallWebviewLoadFallback(paywallInfo: paywallInfo)
+      case .processTerminated:
+        return .paywallWebviewProcessTerminated(paywallInfo: paywallInfo)
       }
     }
     let paywallInfo: PaywallInfo
@@ -776,6 +859,7 @@ enum InternalSuperwallEvent {
       case fail(Error)
       case complete
       case retry(Int)
+      case missingProducts(Set<String>)
     }
     let state: State
     var audienceFilterParams: [String: Any] {
@@ -798,6 +882,12 @@ enum InternalSuperwallEvent {
           paywallInfo: paywallInfo,
           attempt: attempt
         )
+      case .missingProducts(let identifiers):
+        return .paywallProductsLoadMissingProducts(
+          triggeredPlacementName: placementData?.name,
+          paywallInfo: paywallInfo,
+          identifiers: identifiers
+        )
       }
     }
     let paywallInfo: PaywallInfo
@@ -811,6 +901,49 @@ enum InternalSuperwallEvent {
       if case .fail(let error) = state {
         params["error_message"] = error.safeLocalizedDescription
       }
+      if case .missingProducts(let identifiers) = state {
+        params["missing_products"] = Array(identifiers).joined(separator: ",")
+      }
+      params += await paywallInfo.placementParams()
+      return params
+    }
+  }
+
+  struct StripeCheckout: TrackableSuperwallEvent {
+    enum State {
+      case start
+      case submit
+      case complete
+      case fail
+    }
+    let state: State
+    let productId: String
+    let paywallInfo: PaywallInfo
+    let placementData: PlacementData?
+
+    var audienceFilterParams: [String: Any] {
+      return paywallInfo.audienceFilterParams()
+    }
+
+    var superwallEvent: SuperwallEvent {
+      switch state {
+      case .start:
+        return .stripeCheckoutStart(paywallInfo: paywallInfo)
+      case .submit:
+        return .stripeCheckoutSubmit(paywallInfo: paywallInfo)
+      case .complete:
+        return .stripeCheckoutComplete(paywallInfo: paywallInfo)
+      case .fail:
+        return .stripeCheckoutFail(paywallInfo: paywallInfo)
+      }
+    }
+
+    func getSuperwallParameters() async -> [String: Any] {
+      var params: [String: Any] = [
+        "is_triggered_from_event": placementData != nil,
+        "store": "STRIPE",
+        "product_identifier": productId
+      ]
       params += await paywallInfo.placementParams()
       return params
     }
@@ -998,6 +1131,110 @@ enum InternalSuperwallEvent {
       return [
         "request_url": requestURLString,
         "response": responseString
+      ]
+    }
+  }
+
+  struct ReviewRequested: TrackableSuperwallEvent {
+    let count: Int
+    let type: ReviewType
+    var superwallEvent: SuperwallEvent {
+      return .reviewRequested(count: count)
+    }
+    var audienceFilterParams: [String: Any] = [:]
+
+    func getSuperwallParameters() async -> [String: Any] {
+      return [
+        "count": count,
+        "type": type.rawValue
+      ]
+    }
+  }
+
+  struct TestModeModalOpen: TrackableSuperwallEvent {
+    let superwallEvent: SuperwallEvent = .testModeModalOpen
+    var audienceFilterParams: [String: Any] = [:]
+    func getSuperwallParameters() async -> [String: Any] { [:] }
+  }
+
+  struct TestModeModalClose: TrackableSuperwallEvent {
+    let superwallEvent: SuperwallEvent = .testModeModalClose
+    let entitlements: Set<Entitlement>
+    let freeTrialOverride: String
+    var audienceFilterParams: [String: Any] = [:]
+    func getSuperwallParameters() async -> [String: Any] {
+      var params: [String: Any] = [
+        "free_trial_override": freeTrialOverride
+      ]
+      for entitlement in entitlements.sorted(by: { $0.id < $1.id }) {
+        let prefix = "entitlement_\(entitlement.id)"
+        params["\(prefix)_state"] = entitlement.state?.rawValue ?? "inactive"
+        params["\(prefix)_offer_type"] = entitlement.offerType?.rawValue ?? "none"
+      }
+      return params
+    }
+  }
+
+  enum PaywallPreloadState {
+    case start
+    case complete
+  }
+
+  struct PaywallPreload: TrackableSuperwallEvent {
+    let state: PaywallPreloadState
+    let paywallCount: Int
+    var superwallEvent: SuperwallEvent {
+      switch state {
+      case .start:
+        return .paywallPreloadStart(paywallCount: paywallCount)
+      case .complete:
+        return .paywallPreloadComplete(paywallCount: paywallCount)
+      }
+    }
+    var audienceFilterParams: [String: Any] = [:]
+
+    func getSuperwallParameters() async -> [String: Any] {
+      return [
+        "paywall_count": paywallCount
+      ]
+    }
+  }
+
+  enum PermissionState {
+    case requested
+    case granted
+    case denied
+  }
+
+  struct Permission: TrackableSuperwallEvent {
+    let state: PermissionState
+    let permissionName: String
+    let paywallIdentifier: String
+    var superwallEvent: SuperwallEvent {
+      switch state {
+      case .requested:
+        return .permissionRequested(
+          permissionName: permissionName,
+          paywallIdentifier: paywallIdentifier
+        )
+      case .granted:
+        return .permissionGranted(
+          permissionName: permissionName,
+          paywallIdentifier: paywallIdentifier
+        )
+      case .denied:
+        return .permissionDenied(
+          permissionName: permissionName,
+          paywallIdentifier: paywallIdentifier
+        )
+      }
+    }
+    var audienceFilterParams: [String: Any] = [:]
+
+    func getSuperwallParameters() async -> [String: Any] {
+      return [
+        "permission_name": permissionName,
+        "paywall_identifier": paywallIdentifier
       ]
     }
   }

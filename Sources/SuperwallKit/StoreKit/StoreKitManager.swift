@@ -9,6 +9,10 @@ actor StoreKitManager {
   private let productsManager: ProductsManager
 
   private(set) var productsById: [String: StoreProduct] = [:]
+
+  func setProduct(_ product: StoreProduct, forIdentifier identifier: String) {
+    productsById[identifier] = product
+  }
   private struct ProductProcessingResult {
     let productIdsToLoad: Set<String>
     let substituteProductsById: [String: StoreProduct]
@@ -30,7 +34,7 @@ actor StoreKitManager {
     var productAttributes: [ProductVariable] = []
 
     // Add the StoreProduct attributes for each product at its corresponding index
-    paywall.products.forEach { productItem in
+    paywall.appStoreProducts.forEach { productItem in
       guard let storeProduct = output.productsById[productItem.id] else {
         return
       }
@@ -39,7 +43,9 @@ actor StoreKitManager {
         productAttributes.append(
           ProductVariable(
             name: name,
-            attributes: storeProduct.attributesJson
+            attributes: storeProduct.attributesJson,
+            id: storeProduct.productIdentifier,
+            hasIntroOffer: storeProduct.hasFreeTrial
           )
         )
       }
@@ -48,16 +54,49 @@ actor StoreKitManager {
     return productAttributes
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   func getProducts(
     forPaywall paywall: Paywall?,
     placement: PlacementData?,
-    substituting substituteProductsByLabel: [String: ProductOverride]? = nil
+    substituting substituteProductsByLabel: [String: ProductOverride]? = nil,
+    isTestMode: Bool = false
   ) async throws -> (
     productsById: [String: StoreProduct],
     productItems: [Product]
   ) {
+    // In test mode, use cached test products instead of fetching from StoreKit
+    if isTestMode {
+      var testProductsById: [String: StoreProduct] = [:]
+      for (id, product) in productsById {
+        testProductsById[id] = product
+      }
+
+      var productItems: [Product] = []
+      for original in paywall?.products ?? [] {
+        let id = original.id
+        if let product = testProductsById[id] {
+          productItems.append(
+            Product(
+              name: original.name,
+              type: original.type,
+              id: id,
+              entitlements: product.entitlements
+            )
+          )
+        } else {
+          productItems.append(original)
+        }
+      }
+
+      testProductsById.forEach { id, product in
+        self.productsById[id] = product
+      }
+
+      return (testProductsById, productItems)
+    }
+
     // 1. Compute fetch IDs = paywall IDs - byProduct IDs + byId IDs
-    let paywallIDs = Set(paywall?.productIds ?? [])
+    let paywallIDs = Set(paywall?.appStoreProductIds ?? [])
     let byIdIDs: Set<String> = Set(substituteProductsByLabel?.values.compactMap {
       if case .byId(let id) = $0 {
         return id
@@ -111,6 +150,7 @@ actor StoreKitManager {
               Product(
                 name: name,
                 type: .appStore(.init(id: id)),
+                id: id,
                 entitlements: product.entitlements
               )
             )
@@ -123,6 +163,7 @@ actor StoreKitManager {
             Product(
               name: name,
               type: .appStore(.init(id: id)),
+              id: id,
               entitlements: product.entitlements
             )
           )

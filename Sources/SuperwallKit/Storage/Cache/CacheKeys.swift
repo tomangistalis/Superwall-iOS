@@ -185,6 +185,14 @@ enum DisableVerbosePlacements: Storable {
   typealias Value = Bool
 }
 
+enum IsTestModeActiveSubscription: Storable {
+  static var key: String {
+    "store.isTestModeActiveSubscription"
+  }
+  static var directory: SearchPathDirectory = .appSpecificDocuments
+  typealias Value = Bool
+}
+
 enum LatestConfig: Storable {
   static var key: String {
     "store.config"
@@ -229,8 +237,24 @@ enum LastWebEntitlementsFetchDate: Storable {
   static var key: String {
     "store.LastWebEntitlementsFetchDate"
   }
-  static var directory: SearchPathDirectory = .appSpecificDocuments
+  static var directory: SearchPathDirectory = .userSpecificDocuments
   typealias Value = Date
+}
+
+enum PendingStripeCheckoutPollStorage: Storable {
+  static var key: String {
+    "store.PendingStripeCheckoutPollStorage"
+  }
+  static var directory: SearchPathDirectory = .userSpecificDocuments
+  typealias Value = PendingStripeCheckoutPollState
+}
+
+enum LatestCustomerInfo: Storable {
+  static var key: String {
+    "store.CustomerInfo"
+  }
+  static var directory: SearchPathDirectory = .userSpecificDocuments
+  typealias Value = CustomerInfo
 }
 
 enum IntegrationAttributes: Storable {
@@ -239,4 +263,28 @@ enum IntegrationAttributes: Storable {
   }
   static var directory: SearchPathDirectory = .userSpecificDocuments
   typealias Value = [String: String]
+}
+
+enum LatestDeviceCustomerInfo: Storable {
+  static var key: String {
+    "store.DeviceCustomerInfo"
+  }
+  static var directory: SearchPathDirectory = .userSpecificDocuments
+  typealias Value = CustomerInfo
+}
+
+enum AppTransactionIdSent: Storable {
+  static var key: String {
+    "store.appTransactionIdSent"
+  }
+  static var directory: SearchPathDirectory = .appSpecificDocuments
+  typealias Value = Bool
+}
+
+enum LastApiKey: Storable {
+  static var key: String {
+    "store.lastApiKey"
+  }
+  static var directory: SearchPathDirectory = .appSpecificDocuments
+  typealias Value = String
 }

@@ -36,12 +36,15 @@ class ReceiptManagerTests: XCTestCase {
     let sk1ReceiptManager = SK1ReceiptManager(receiptData: getReceiptData)
     let receiptManager = ReceiptManager(
       storeKitVersion: .storeKit1,
+      shouldBypassAppTransactionCheck: false,
       productsManager: productsManager,
       receiptManager: sk1ReceiptManager,
-      receiptDelegate: purchaseController
+      receiptDelegate: purchaseController,
+      factory: dependencyContainer,
+      storage: dependencyContainer.storage
     )
 
-    await receiptManager.loadPurchasedProducts()
+    await receiptManager.loadPurchasedProducts(config: .stub())
     let purchasedSubscriptionGroupIds = sk1ReceiptManager.purchasedSubscriptionGroupIds
     XCTAssertEqual(purchasedSubscriptionGroupIds, ["abc"])
   }
@@ -62,18 +65,37 @@ class ReceiptManagerTests: XCTestCase {
     let sk1ReceiptManager = SK1ReceiptManager(receiptData: getReceiptData)
     let receiptManager = ReceiptManager(
       storeKitVersion: .storeKit1,
+      shouldBypassAppTransactionCheck: false,
       productsManager: productsManager,
       receiptManager: sk1ReceiptManager,
-      receiptDelegate: purchaseController
+      receiptDelegate: purchaseController,
+      factory: dependencyContainer,
+      storage: dependencyContainer.storage
     )
 
-    await receiptManager.loadPurchasedProducts()
+    await receiptManager.loadPurchasedProducts(config: .stub())
     let purchasedSubscriptionGroupIds = sk1ReceiptManager.purchasedSubscriptionGroupIds
     XCTAssertNil(purchasedSubscriptionGroupIds)
   }
 
-  func test_isFreeTrialAvailable() {
-    
+  func test_isSandboxEnvironment_defaultsToNil() {
+    // Reset to default state
+    ReceiptManager.isSandboxEnvironment = nil
+    XCTAssertNil(ReceiptManager.isSandboxEnvironment)
+  }
+
+  func test_isSandboxEnvironment_canBeSetToTrue() {
+    ReceiptManager.isSandboxEnvironment = true
+    XCTAssertEqual(ReceiptManager.isSandboxEnvironment, true)
+    // Clean up
+    ReceiptManager.isSandboxEnvironment = nil
+  }
+
+  func test_isSandboxEnvironment_canBeSetToFalse() {
+    ReceiptManager.isSandboxEnvironment = false
+    XCTAssertEqual(ReceiptManager.isSandboxEnvironment, false)
+    // Clean up
+    ReceiptManager.isSandboxEnvironment = nil
   }
   /*
   // MARK: - Test processing of receipt data

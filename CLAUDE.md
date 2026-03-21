@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Package Management
 - Swift Package Manager: Primary dependency management via `Package.swift`
 - CocoaPods: Also supported via `SuperwallKit.podspec`
-- Dependencies: `Superscript-iOS` at exact version 0.2.8
+- Dependencies: `Superscript-iOS` at exact version 1.0.4
 
 ## Architecture Overview
 
@@ -66,8 +66,11 @@ SuperwallKit is an iOS SDK for remote paywall configuration and A/B testing. The
 
 ### Version Management
 
-- Version is defined in `Sources/SuperwallKit/Misc/Constants.swift` line 21
-- Pre-commit hook automatically syncs version to `SuperwallKit.podspec`
+When bumping the version, update all three files:
+1. `Sources/SuperwallKit/Misc/Constants.swift` (line 21)
+2. `SuperwallKit.podspec` (s.version)
+3. `CHANGELOG.md` (add new version entry at top)
+
 - Follows semantic versioning
 
 ### Testing
@@ -88,4 +91,22 @@ SuperwallKit is an iOS SDK for remote paywall configuration and A/B testing. The
 - When making changes to the SDK, always write a unit test for the new
   functionality.
 - Make sure to run the tests, ensuring they pass.
-- Finally run swiftlint --fix to ensure the code is formatted correctly.
+- **ALWAYS run `scripts/lint.sh` after making any code changes to check for formatting issues.**
+- **ALWAYS run `swiftlint --fix` on any files that have linting violations.**
+- **Remember: No trailing whitespace is allowed on any lines.**
+- **Update CHANGELOG.md for customer-facing changes:** Include new API additions, bug fixes, and crash fixes. Focus on what the change does for developers, not internal implementation details. For example: "Added `setIntegrationAttribute()` method to enable setting individual attribution provider IDs" or "Fixed crash when handling expired subscriptions".
+
+### Pull Requests
+
+When creating PRs, always include the checklist from `.github/PULL_REQUEST_TEMPLATE.md`:
+
+- [ ] All unit tests pass.
+- [ ] All UI tests pass.
+- [ ] Demo project builds and runs on iOS.
+- [ ] Demo project builds and runs on Mac Catalyst.
+- [ ] Demo project builds and runs on visionOS.
+- [ ] I added/updated tests or detailed why my change isn't tested.
+- [ ] I added an entry to the `CHANGELOG.md` for any breaking changes, enhancements, or bug fixes.
+- [ ] I have run `swiftlint` in the main directory and fixed any issues.
+- [ ] I have updated the SDK documentation as well as the online docs.
+- [ ] I have reviewed the [contributing guide](https://github.com/superwall-me/paywall-ios/tree/master/.github/CONTRIBUTING.md)

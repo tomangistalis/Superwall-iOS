@@ -54,17 +54,37 @@ struct Paywall: Codable {
   /// A surveys to potentially show when an action happens in the paywall.
   var surveys: [Survey]
 
-  /// An ordered list of products associated with the paywall.
+  /// An ordered list of products associated with the paywall. Note these can be AppStore or Stripe.
   var products: [Product] {
     didSet {
       productIds = products.map { $0.id }
+      appStoreProductIds = appStoreProducts.map { $0.id }
     }
+  }
+
+  /// The App Store-only products associated with the paywall.
+  var appStoreProducts: [Product] {
+    return PaywallLogic.getAppStoreProducts(from: products)
   }
 
   /// Indicates whether scrolling is enabled on the webview.
   var isScrollEnabled: Bool
 
+  /// Indicates how intro offer eligiblity should be treat on products. Defaults to
+  /// `.automatic`.
+  let introOfferEligibility: IntroOfferEligibility
+
+  var productIdsWithIntroOffers: [String] {
+    return productVariables?
+      .filter { $0.hasIntroOffer }
+      .map { $0.id } ?? []
+  }
+
   // MARK: - Added by client
+
+  /// A unique identifier for this paywall presentation, used to correlate all events
+  /// within a single presentation lifecycle.
+  var presentationId: String?
 
   var responseLoadingInfo: LoadingInfo
   var webviewLoadingInfo: LoadingInfo
@@ -73,8 +93,14 @@ struct Paywall: Codable {
 
   /// An array of the ids of paywall products.
   ///
-  /// This is set on init and whenever products are updated.
+  /// This is set on init and whenever products are updated. This can include both App Store
+  /// and Stripe product IDs.
   var productIds: [String]
+
+  /// An array of the ids specific to the App Store of paywall products.
+  ///
+  /// This is set on init and whenever products are updated.
+  var appStoreProductIds: [String]
 
   /// The experiment associated with the paywall.
   var experiment: Experiment?
@@ -144,6 +170,7 @@ struct Paywall: Codable {
     case surveys
     case manifest
     case isScrollEnabled
+    case introductoryOfferEligibility
 
     case responseLoadStartTime
     case responseLoadCompleteTime
@@ -199,13 +226,14 @@ struct Paywall: Codable {
       self.darkBackgroundColorHex = nil
     }
 
-    let appStoreProductItems = try values.decodeIfPresent(
+    let products = try values.decodeIfPresent(
       [Throwable<Product>].self,
       forKey: .products
     ) ?? []
-    products = appStoreProductItems.compactMap { try? $0.result.get() }
+    self.products = products.compactMap { try? $0.result.get() }
 
-    productIds = products.map { $0.id }
+    productIds = self.products.map { $0.id }
+    appStoreProductIds = PaywallLogic.getAppStoreProducts(from: self.products).map { $0.id }
 
     let responseLoadStartTime = try values.decodeIfPresent(Date.self, forKey: .responseLoadStartTime)
     let responseLoadCompleteTime = try values.decodeIfPresent(Date.self, forKey: .responseLoadCompleteTime)
@@ -258,6 +286,8 @@ struct Paywall: Codable {
 
     manifest = try values.decodeIfPresent(ArchiveManifest.self, forKey: .manifest)
     isScrollEnabled = try values.decodeIfPresent(Bool.self, forKey: .isScrollEnabled) ?? true
+    introOfferEligibility = try values
+      .decodeIfPresent(IntroOfferEligibility.self, forKey: .introductoryOfferEligibility) ?? .automatic
   }
 
   func encode(to encoder: Encoder) throws {
@@ -314,6 +344,7 @@ struct Paywall: Codable {
 
     try container.encodeIfPresent(manifest, forKey: .manifest)
     try container.encodeIfPresent(isScrollEnabled, forKey: .isScrollEnabled)
+    try container.encodeIfPresent(introOfferEligibility, forKey: .introductoryOfferEligibility)
   }
 
   // Only used in stub
@@ -334,6 +365,7 @@ struct Paywall: Codable {
     darkBackgroundColor: UIColor?,
     productItems: [Product],
     productIds: [String],
+    appStoreProductIds: [String],
     responseLoadingInfo: LoadingInfo,
     webviewLoadingInfo: LoadingInfo,
     productsLoadingInfo: LoadingInfo,
@@ -348,7 +380,8 @@ struct Paywall: Codable {
     computedPropertyRequests: [ComputedPropertyRequest] = [],
     surveys: [Survey] = [],
     manifest: ArchiveManifest? = nil,
-    isScrollEnabled: Bool
+    isScrollEnabled: Bool,
+    introOfferEligibility: IntroOfferEligibility = .automatic
   ) {
     self.databaseId = databaseId
     self.identifier = identifier
@@ -366,6 +399,7 @@ struct Paywall: Codable {
     self.darkBackgroundColorHex = darkBackgroundColorHex
     self.products = productItems
     self.productIds = productIds
+    self.appStoreProductIds = appStoreProductIds
     self.responseLoadingInfo = responseLoadingInfo
     self.webviewLoadingInfo = webviewLoadingInfo
     self.productsLoadingInfo = productsLoadingInfo
@@ -381,6 +415,7 @@ struct Paywall: Codable {
     self.surveys = surveys
     self.manifest = manifest
     self.isScrollEnabled = isScrollEnabled
+    self.introOfferEligibility = introOfferEligibility
   }
 
   func getInfo(fromPlacement: PlacementData?) -> PaywallInfo {
@@ -393,6 +428,7 @@ struct Paywall: Codable {
       url: url,
       products: products,
       productIds: productIds,
+      presentationId: presentationId,
       fromPlacementData: fromPlacement,
       responseLoadStartTime: responseLoadingInfo.startAt,
       responseLoadCompleteTime: responseLoadingInfo.endAt,
@@ -416,7 +452,8 @@ struct Paywall: Codable {
       surveys: surveys,
       presentation: presentation,
       isScrollEnabled: isScrollEnabled,
-      state: state
+      state: state,
+      introOfferEligibility: introOfferEligibility
     )
   }
 
@@ -428,6 +465,7 @@ struct Paywall: Codable {
     presentationSourceType = paywall.presentationSourceType
     experiment = paywall.experiment
     featureGating = paywall.featureGating
+    presentationId = paywall.presentationId
   }
 }
 
@@ -462,12 +500,14 @@ extension Paywall: Stubbable {
       darkBackgroundColor: nil,
       productItems: [],
       productIds: [],
+      appStoreProductIds: [],
       responseLoadingInfo: .init(),
       webviewLoadingInfo: .init(),
       productsLoadingInfo: .init(),
       shimmerLoadingInfo: .init(),
       paywalljsVersion: "",
-      isScrollEnabled: true
+      isScrollEnabled: true,
+      introOfferEligibility: .automatic
     )
   }
 }

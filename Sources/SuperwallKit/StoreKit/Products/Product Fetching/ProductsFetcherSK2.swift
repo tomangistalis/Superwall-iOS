@@ -20,7 +20,7 @@ enum ProductsFetcherSK2Error: LocalizedError {
 }
 
 @available(iOS 15.0, *)
-final actor ProductsFetcherSK2: ProductFetchable, Sendable {
+final actor ProductsFetcherSK2: ProductFetchable {
   private unowned let entitlementsInfo: EntitlementsInfo
   private let numberOfRetries: Int
 
@@ -66,7 +66,7 @@ final actor ProductsFetcherSK2: ProductFetchable, Sendable {
           message: "\(errorMessage). Visit https://superwall.com/l/missing-products to diagnose.",
           info: ["product_ids": identifiers.description]
         )
-        throw ProductsFetcherSK2Error.noProductsFound(identifiers)
+        throw ProductFetchingError.noProductsFound(identifiers)
       }
 
       let storeProducts = Set(sk2Products.map {
@@ -75,6 +75,9 @@ final actor ProductsFetcherSK2: ProductFetchable, Sendable {
       })
       return storeProducts
     } catch {
+      if error is ProductFetchingError {
+        throw error
+      }
       if retriesLeft <= 0 {
         throw error
       } else {

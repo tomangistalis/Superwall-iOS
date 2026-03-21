@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 @testable import SuperwallKit
 import CoreMedia
 
@@ -6,7 +6,7 @@ import CoreMedia
 
 let response = #"""
 {
-  "web2app_config": 
+  "web2app_config":
   {
     "entitlements_max_age_ms": 86400000,
     "restore_access_url": "https://web2app.localhost:3065/manage"
@@ -490,7 +490,7 @@ let response = #"""
     "all": false,
     "triggers": []
   },
-  "products": [
+  "products_v3": [
     {
       "store_product": {
         "store": "APP_STORE",
@@ -526,35 +526,61 @@ let response = #"""
           "type": "SERVICE_LEVEL"
         }
       ]
+    },
+    {
+      "sw_composite_product_id": "test:price_1R4AhCBitwqMmwU0jvsd3blk:no-trial",
+      "store_product": {
+        "store": "STRIPE",
+        "environment": "test",
+        "product_identifier": "price_1R4AhCBitwqMmwU0jvsd3blk",
+        "trial_days": null
+      },
+      "entitlements": [
+        {
+          "identifier": "Pro",
+          "type": "SERVICE_LEVEL"
+        },
+        {
+          "identifier": "Pro",
+          "type": "SERVICE_LEVEL"
+        }
+      ]
+    }
+  ],
+  "test_mode_user_ids": [
+    {
+      "type": "aliasId",
+      "value": "678"
     }
   ]
 }
 """#
 
-final class ConfigTypeTests: XCTestCase {
-  func testParseConfig() throws {
+struct ConfigTypeTests {
+  @Test func parseConfig() throws {
     let parsedResponse = try! JSONDecoder.fromSnakeCase.decode(
       Config.self,
       from: response.data(using: .utf8)!
     )
 
-    XCTAssertTrue(parsedResponse.paywalls.first!.products.count != 0)
+    #expect(parsedResponse.paywalls.first!.products.count != 0)
     guard let trigger = parsedResponse.triggers.filter({ $0.placementName == "MyEvent" }).first
     else {
-      return XCTFail("opened_application trigger not found")
+      Issue.record("opened_application trigger not found")
+      return
     }
 
     let firstRule = trigger.audiences[0]
-    XCTAssertNil(firstRule.expression)
-    XCTAssertEqual(firstRule.experiment.id, "80")
+    #expect(firstRule.expression == nil)
+    #expect(firstRule.experiment.id == "80")
 
-    XCTAssertEqual(parsedResponse.web2appConfig?.restoreAccessURL, URL(string: "https://web2app.localhost:3065/manage")!)
+    #expect(parsedResponse.web2appConfig?.restoreAccessURL == URL(string: "https://web2app.localhost:3065/manage")!)
 
     switch firstRule.experiment.variants.first!.type {
     case .treatment:
       throw TestError.init("Expecting Holdout")
     case .holdout:
-      XCTAssertEqual(firstRule.experiment.variants.first!.id, "218")
+      #expect(firstRule.experiment.variants.first!.id == "218")
     }
 
     let secondVariant = firstRule.experiment.variants[1]
@@ -562,12 +588,12 @@ final class ConfigTypeTests: XCTestCase {
     case .holdout:
       throw TestError.init("Expecting holdout")
     case .treatment:
-      XCTAssertEqual(secondVariant.paywallId, "example-paywall-4de1-2022-03-15")
-      XCTAssertEqual(secondVariant.id, "219")
+      #expect(secondVariant.paywallId == "example-paywall-4de1-2022-03-15")
+      #expect(secondVariant.id == "219")
     }
   }
 
-  func testEncodeThenDecode() throws {
+  @Test func encodeThenDecode() throws {
     let config = Config(
       buildId: "abc",
       triggers: [
@@ -591,13 +617,13 @@ final class ConfigTypeTests: XCTestCase {
       featureFlags: .stub(),
       preloadingDisabled: PreloadingDisabled(all: false, triggers: ["trigger1"]),
       attribution: .init(appleSearchAds: .init(enabled: true)),
-      products: [.init(name: "prod1", type: .appStore(.init(id: "prod1")), entitlements: [.default])]
+      products: [.init(name: "prod1", type: .appStore(.init(id: "prod1")), id: "prod1", entitlements: [.stub()])]
     )
 
     let data = try JSONEncoder().encode(config)
 
     let decoded = try JSONDecoder().decode(Config.self, from: data)
 
-    XCTAssertEqual(config, decoded)
+    #expect(config == decoded)
   }
 }

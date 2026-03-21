@@ -334,13 +334,60 @@ class Network {
     )
   }
 
-  func redeemEntitlements(
+  func pollRedemptionResult(request: PollRedemptionResultRequest) async throws -> RedeemResponse {
+    return try await urlSession.request(
+      .pollRedemptionResult(request: request),
+      data: SuperwallRequestData(factory: factory)
+    )
+  }
+
+  func getEntitlements(
     appUserId: String?,
     deviceId: String
-  ) async throws -> Set<Entitlement> {
+  ) async throws -> EntitlementsResponse {
     return try await urlSession.request(
-      .redeem(appUserId: appUserId, deviceId: deviceId),
+      .entitlements(
+        appUserId: appUserId,
+        deviceId: deviceId
+      ),
       data: SuperwallRequestData(factory: factory)
-    ).entitlements
+    )
+  }
+
+  func getIntroOfferToken(
+    productIds: [String],
+    appTransactionId: String,
+    allowIntroductoryOffer: Bool
+  ) async throws -> [String: IntroOfferToken] {
+    return try await urlSession.request(
+      .getIntroOfferToken(
+        productIds: productIds,
+        appTransactionId: appTransactionId,
+        allowIntroductoryOffer: allowIntroductoryOffer
+      ),
+      data: SuperwallRequestData(factory: factory)
+    ).tokensByProductId
+  }
+
+  /// Fetches all products from the subscriptions API.
+  /// The application is inferred from the SDK's public API key.
+  ///
+  /// - Returns: A response containing all products for this application.
+  func getSuperwallProducts() async throws -> SuperwallProductsResponse {
+    do {
+      let response: SuperwallProductsResponse = try await urlSession.request(
+        .superwallProducts(),
+        data: SuperwallRequestData(factory: factory)
+      )
+      return response
+    } catch {
+      Logger.debug(
+        logLevel: .error,
+        scope: .network,
+        message: "Request Failed: /v1/products",
+        error: error
+      )
+      throw error
+    }
   }
 }

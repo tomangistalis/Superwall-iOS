@@ -17,16 +17,29 @@ class StoreKitManagerTests: XCTestCase {
   }()
 
   func test_getProducts_primaryProduct() async {
-    let dependencyContainer = DependencyContainer()
-    let manager = dependencyContainer.storeKitManager!
-
     let primary = MockSkProduct(productIdentifier: "abc")
     let entitlements: Set<Entitlement> = [.stub()]
+    
+    // Mock the products fetcher to return empty set since we're substituting all products
+    let productsResult: Result<Set<StoreProduct>, Error> = .success([])
+    let productsFetcher = ProductsFetcherSK1Mock(
+      productCompletionResult: productsResult,
+      entitlementsInfo: dependencyContainer.entitlementsInfo
+    )
+    let productsManager = ProductsManager(
+      entitlementsInfo: dependencyContainer.entitlementsInfo,
+      storeKitVersion: .storeKit1,
+      productsFetcher: productsFetcher
+    )
+    let manager = StoreKitManager(
+      productsManager: productsManager
+    )
+    
     let substituteProducts = [
       "primary": ProductOverride.byProduct(StoreProduct(sk1Product: primary, entitlements: entitlements))
     ]
     let paywall = Paywall.stub()
-      .setting(\.products, to: [.init(name: "primary", type: .appStore(.init(id: "xyz")), entitlements: [])])
+      .setting(\.products, to: [.init(name: "primary", type: .appStore(.init(id: "xyz")), id: "xyz", entitlements: [])])
     do {
       let (productsById, products) = try await manager.getProducts(
         forPaywall: paywall,
@@ -45,13 +58,25 @@ class StoreKitManagerTests: XCTestCase {
   }
 
   func test_getProducts_primaryAndTertiaryProduct() async {
-    let dependencyContainer = DependencyContainer()
-    let manager = dependencyContainer.storeKitManager!
-
     let primary = MockSkProduct(productIdentifier: "abc")
     let primaryEntitlements: Set<Entitlement> = [.stub()]
-
     let tertiary = MockSkProduct(productIdentifier: "def")
+    
+    // Mock the products fetcher to return empty set since we're substituting all products
+    let productsResult: Result<Set<StoreProduct>, Error> = .success([])
+    let productsFetcher = ProductsFetcherSK1Mock(
+      productCompletionResult: productsResult,
+      entitlementsInfo: dependencyContainer.entitlementsInfo
+    )
+    let productsManager = ProductsManager(
+      entitlementsInfo: dependencyContainer.entitlementsInfo,
+      storeKitVersion: .storeKit1,
+      productsFetcher: productsFetcher
+    )
+    let manager = StoreKitManager(
+      productsManager: productsManager
+    )
+
     let substituteProducts = [
       "primary": ProductOverride.byProduct(StoreProduct(sk1Product: primary, entitlements: primaryEntitlements)),
       "tertiary": ProductOverride.byProduct(StoreProduct(sk1Product: tertiary, entitlements: []))
@@ -59,8 +84,8 @@ class StoreKitManagerTests: XCTestCase {
 
     let paywall = Paywall.stub()
       .setting(\.products, to: [
-        .init(name: "primary", type: .appStore(.init(id: "xyz")), entitlements: []),
-        .init(name: "tertiary", type: .appStore(.init(id: "ghi")), entitlements: [.stub()]),
+        .init(name: "primary", type: .appStore(.init(id: "xyz")), id: "xyz", entitlements: []),
+        .init(name: "tertiary", type: .appStore(.init(id: "ghi")), id: "ghi", entitlements: [.stub()]),
       ])
 
     do {
@@ -85,12 +110,25 @@ class StoreKitManagerTests: XCTestCase {
   }
 
   func test_getProducts_primarySecondaryTertiaryProduct() async {
-    let dependencyContainer = DependencyContainer()
-    let manager = dependencyContainer.storeKitManager!
-
     let primary = MockSkProduct(productIdentifier: "abc")
     let secondary = MockSkProduct(productIdentifier: "def")
     let tertiary = MockSkProduct(productIdentifier: "ghi")
+    
+    // Mock the products fetcher to return empty set since we're substituting all products
+    let productsResult: Result<Set<StoreProduct>, Error> = .success([])
+    let productsFetcher = ProductsFetcherSK1Mock(
+      productCompletionResult: productsResult,
+      entitlementsInfo: dependencyContainer.entitlementsInfo
+    )
+    let productsManager = ProductsManager(
+      entitlementsInfo: dependencyContainer.entitlementsInfo,
+      storeKitVersion: .storeKit1,
+      productsFetcher: productsFetcher
+    )
+    let manager = StoreKitManager(
+      productsManager: productsManager
+    )
+    
     let substituteProducts = [
       "primary": StoreProduct(sk1Product: primary, entitlements: []),
       "secondary": StoreProduct(sk1Product: secondary, entitlements: []),
@@ -98,9 +136,9 @@ class StoreKitManagerTests: XCTestCase {
     ].mapValues(ProductOverride.byProduct)
     let paywall = Paywall.stub()
       .setting(\.products, to: [
-        .init(name: "primary", type: .appStore(.init(id: "xyz")), entitlements: []),
-        .init(name: "secondary", type: .appStore(.init(id: "123")), entitlements: []),
-        .init(name: "tertiary", type: .appStore(.init(id: "uiu")), entitlements: [.stub()]),
+        .init(name: "primary", type: .appStore(.init(id: "xyz")), id: "xyz", entitlements: []),
+        .init(name: "secondary", type: .appStore(.init(id: "123")), id: "123", entitlements: []),
+        .init(name: "tertiary", type: .appStore(.init(id: "uiu")), id: "uiu", entitlements: [.stub()]),
       ])
     do {
       let (productsById, products) = try await manager.getProducts(
@@ -147,7 +185,7 @@ class StoreKitManagerTests: XCTestCase {
     ].mapValues(ProductOverride.byProduct)
     let paywall = Paywall.stub()
       .setting(\.products, to: [
-        .init(name: "primary", type: .appStore(.init(id: "1")), entitlements: [])
+        .init(name: "primary", type: .appStore(.init(id: "1")), id: "1", entitlements: [])
       ])
     do {
       let (productsById, products) = try await manager.getProducts(
@@ -187,8 +225,8 @@ class StoreKitManagerTests: XCTestCase {
 
     let paywall = Paywall.stub()
       .setting(\.products, to: [
-        .init(name: "primary", type: .appStore(.init(id: "1")), entitlements: []),
-        .init(name: "secondary", type: .appStore(.init(id: "2")), entitlements: [])
+        .init(name: "primary", type: .appStore(.init(id: "1")), id: "1", entitlements: []),
+        .init(name: "secondary", type: .appStore(.init(id: "2")), id: "2", entitlements: [])
       ])
 
     do {

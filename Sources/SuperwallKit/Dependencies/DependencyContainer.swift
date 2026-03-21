@@ -41,6 +41,9 @@ final class DependencyContainer {
   var webEntitlementRedeemer: WebEntitlementRedeemer!
   var deepLinkRouter: DeepLinkRouter!
   var attributionFetcher: AttributionFetcher!
+  var testModeManager: TestModeManager!
+  let permissionHandler = PermissionHandler()
+  let customCallbackRegistry = CustomCallbackRegistry()
   // swiftlint:enable implicitly_unwrapped_optional
   let paywallArchiveManager = PaywallArchiveManager()
 
@@ -55,6 +58,12 @@ final class DependencyContainer {
       delegateAdapter: delegateAdapter
     )
     let options = options ?? SuperwallOptions()
+
+    // In test environments, always bypass the app transaction check
+    if TestModeManager.isTestEnvironment {
+      options.shouldBypassAppTransactionCheck = true
+    }
+
     productsManager = ProductsManager(
       entitlementsInfo: entitlementsInfo,
       storeKitVersion: options.storeKitVersion
@@ -69,8 +78,11 @@ final class DependencyContainer {
 
     receiptManager = ReceiptManager(
       storeKitVersion: options.storeKitVersion,
+      shouldBypassAppTransactionCheck: options.shouldBypassAppTransactionCheck,
       productsManager: productsManager,
-      receiptDelegate: purchaseController as? ReceiptDelegate
+      receiptDelegate: purchaseController as? ReceiptDelegate,
+      factory: self,
+      storage: storage
     )
 
     webEntitlementRedeemer = WebEntitlementRedeemer(
@@ -139,7 +151,19 @@ final class DependencyContainer {
       storage: storage,
       configManager: configManager,
       webEntitlementRedeemer: webEntitlementRedeemer
+    ) { [weak self] newAttributes in
+      Task { @MainActor in
+        self?.delegateAdapter.userAttributesDidChange(newAttributes: newAttributes)
+      }
+    }
+
+    testModeManager = TestModeManager(
+      identityManager: identityManager,
+      deviceHelper: deviceHelper,
+      storage: storage
     )
+
+    deviceHelper.testModeManager = testModeManager
 
     appSessionManager = AppSessionManager(
       configManager: configManager,
@@ -198,6 +222,13 @@ extension DependencyContainer: TransactionManagerFactory {
   }
 }
 
+// MARK: - TestModeManagerFactory
+extension DependencyContainer: TestModeManagerFactory {
+  func makeTestModeManager() -> TestModeManager {
+    return testModeManager
+  }
+}
+
 // MARK: - CacheFactory
 extension DependencyContainer: CacheFactory {
   func makeCache() -> PaywallViewControllerCache {
@@ -222,6 +253,9 @@ extension DependencyContainer: DeviceHelperFactory {
   }
 
   func makeIsSandbox() -> Bool {
+    if testModeManager.isTestMode {
+      return true
+    }
     return deviceHelper.isSandbox == "true"
   }
 
@@ -257,7 +291,9 @@ extension DependencyContainer: ViewControllerFactory {
   ) -> PaywallViewController {
     let messageHandler = PaywallMessageHandler(
       receiptManager: receiptManager,
-      factory: self
+      factory: self,
+      permissionHandler: permissionHandler,
+      customCallbackRegistry: customCallbackRegistry
     )
     let webView = SWWebView(
       isMac: deviceHelper.isMac,
@@ -272,7 +308,9 @@ extension DependencyContainer: ViewControllerFactory {
       deviceHelper: deviceHelper,
       factory: self,
       storage: storage,
+      network: network,
       webView: webView,
+      webEntitlementRedeemer: webEntitlementRedeemer,
       cache: cache,
       paywallArchiveManager: paywallArchiveManager
     )
@@ -397,7 +435,7 @@ extension DependencyContainer: ApiFactory {
       "X-Static-Config-Build-Id": configManager.config?.buildId ?? "",
       "X-Current-Time": Date().isoString,
       "X-Retry-Count": "\(configManager.configRetryCount)",
-      "X-Entitlements": Superwall.shared.entitlements.active.map { $0.id }.joined(),
+      "X-Entitlements": entitlementsInfo.active.map { $0.id }.joined(separator: ","),
       "Content-Type": "application/json"
     ]
     return headers
@@ -445,10 +483,6 @@ extension DependencyContainer: ConfigManagerFactory {
       config: configManager.config,
       deviceLocale: deviceInfo.locale
     )
-  }
-
-  func makeConfigManager() -> ConfigManager? {
-    return configManager
   }
 }
 
@@ -538,8 +572,8 @@ extension DependencyContainer: UserAttributesPlacementFactory {
 
 // MARK: - Receipt Factory
 extension DependencyContainer: ReceiptFactory {
-  func loadPurchasedProducts() async {
-    await receiptManager.loadPurchasedProducts()
+  func loadPurchasedProducts(config: Config? = nil) async {
+    await receiptManager.loadPurchasedProducts(config: config)
   }
 
   func refreshSK1Receipt() async {
@@ -547,7 +581,26 @@ extension DependencyContainer: ReceiptFactory {
   }
 
   func isFreeTrialAvailable(for product: StoreProduct) async -> Bool {
+    // Check test mode override first
+    if testModeManager.isTestMode {
+      switch testModeManager.freeTrialOverride {
+      case .useDefault:
+        break
+      case .forceAvailable:
+        return true
+      case .forceUnavailable:
+        return false
+      }
+    }
     return await receiptManager.isFreeTrialAvailable(for: product)
+  }
+
+  var isTestMode: Bool {
+    testModeManager.isTestMode
+  }
+
+  var testModeFreeTrialOverride: FreeTrialOverride {
+    testModeManager.freeTrialOverride
   }
 }
 
@@ -567,6 +620,14 @@ extension DependencyContainer: ConfigAttributesFactory {
 
 // MARK: WebEntitlementFactory
 extension DependencyContainer: WebEntitlementFactory {
+  /// Properties like `deviceHelper` are implicitly unwrapped optionals set after
+  /// init. Tests create a bare `DependencyContainer` without fully configuring it,
+  /// so background tasks in `WebEntitlementRedeemer` must check this before
+  /// accessing factory methods to avoid a nil dereference.
+  func makeIsContainerReady() -> Bool {
+    return configManager != nil
+  }
+
   func makeDeviceId() -> String {
     return "$SuperwallDevice:\(deviceHelper.vendorId)"
   }

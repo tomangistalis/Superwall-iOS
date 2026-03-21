@@ -26,6 +26,7 @@ class DeviceHelper {
     return Locale(identifier: preferredIdentifier).identifier
   }
 
+  @DispatchQueueBacked
   var enrichment: Enrichment?
 
   let appInstalledAtString: String
@@ -175,11 +176,28 @@ class DeviceHelper {
     return Bundle.main.bundleIdentifier ?? ""
   }()
 
-  /// Returns true if built for the simulator or using TestFlight.
-  let isSandbox: String = {
+  /// Set after initialization to enable test mode sandbox override.
+  var testModeManager: TestModeManager?
+
+  /// Returns true if built for the simulator, using TestFlight, or in test mode.
+  var isSandbox: String {
+    if testModeManager?.isTestMode == true {
+      return "true"
+    }
+    return Self.detectSandbox()
+  }
+
+  private static func detectSandbox() -> String {
     #if targetEnvironment(simulator)
       return "true"
     #else
+
+    // Prefer AppTransaction.environment (iOS 16+) when available,
+    // as it reliably detects sandbox for all purchase types including
+    // Stripe and non-StoreKit flows.
+    if let isSandbox = ReceiptManager.isSandboxEnvironment {
+      return "\(isSandbox)"
+    }
 
     guard let url = Bundle.main.appStoreReceiptURL else {
       return "false"
@@ -187,7 +205,7 @@ class DeviceHelper {
 
     return "\(url.path.contains("sandboxReceipt"))"
     #endif
-  }()
+  }
 
   /// The first URL scheme defined in the Info.plist. Assumes there's only one.
   let urlScheme: String = {
@@ -364,6 +382,13 @@ class DeviceHelper {
     return storage.get(TotalPaywallViews.self) ?? 0
   }
 
+  func reviewRequestsTotal() async -> Int {
+    return await storage.coreDataManager.countPlacement(
+      SuperwallEventObjc.reviewRequested.description,
+      interval: .infinity
+    )
+  }
+
   func getDeviceAttributes(
     since placement: PlacementData?,
     computedPropertyRequests: [ComputedPropertyRequest]
@@ -455,7 +480,9 @@ class DeviceHelper {
   private unowned let storage: Storage
   private unowned let entitlementsInfo: EntitlementsInfo
   private unowned let receiptManager: ReceiptManager
-  private unowned let factory: IdentityFactory & LocaleIdentifierFactory
+  private unowned let factory: IdentityFactory
+    & LocaleIdentifierFactory
+    & WebEntitlementFactory
 
   init(
     api: Api,
@@ -463,7 +490,7 @@ class DeviceHelper {
     network: Network,
     entitlementsInfo: EntitlementsInfo,
     receiptManager: ReceiptManager,
-    factory: IdentityFactory & LocaleIdentifierFactory
+    factory: IdentityFactory & LocaleIdentifierFactory & WebEntitlementFactory
   ) {
     self.storage = storage
     self.network = network
@@ -492,12 +519,16 @@ class DeviceHelper {
       timeout: timeout
     )
 
-    if let enrichment = enrichment {
-      storage.save(enrichment, forType: LatestEnrichment.self)
+    $enrichment.withSnapshot { enrichment in
+      if let enrichment = enrichment {
+        storage.save(enrichment, forType: LatestEnrichment.self)
+      }
     }
 
-    if let attributes = enrichment?.user.dictionaryObject {
-      Superwall.shared.setUserAttributes(attributes)
+    $enrichment.withSnapshot { enrichment in
+      if let attributes = enrichment?.user.dictionaryObject {
+        Superwall.shared.setUserAttributes(attributes)
+      }
     }
   }
 
@@ -528,6 +559,7 @@ class DeviceHelper {
       radioType: radioType,
       interfaceStyle: interfaceStyle,
       isLowPowerModeEnabled: isLowPowerModeEnabled == "true",
+      isApplePayAvailable: true,
       bundleId: bundleId,
       appInstallDate: appInstalledAtString,
       isMac: isMac,
@@ -536,6 +568,7 @@ class DeviceHelper {
       daysSinceLastPaywallView: daysSinceLastPaywallView,
       minutesSinceLastPaywallView: minutesSinceLastPaywallView,
       totalPaywallViews: totalPaywallViews,
+      totalReviewRequests: await reviewRequestsTotal(),
       utcDate: utcDateString,
       localDate: localDateString,
       utcTime: utcTimeString,
@@ -545,6 +578,7 @@ class DeviceHelper {
       isSandbox: isSandbox,
       activeEntitlements: Set(entitlementsInfo.active.map { $0.id }),
       activeEntitlementObjects: entitlementsInfo.active,
+      customerInfo: Superwall.shared.customerInfo,
       activeProducts: await receiptManager.getActiveProductIds(),
       subscriptionStatus: Superwall.shared.subscriptionStatus.description,
       isFirstAppOpen: isFirstAppOpen,
@@ -558,12 +592,16 @@ class DeviceHelper {
       platformWrapper: platformWrapper,
       platformWrapperVersion: platformWrapperVersion,
       swiftVersion: currentSwiftVersion(),
-      compilerVersion: currentCompilerVersion()
+      compilerVersion: currentCompilerVersion(),
+      localResourceIds: Superwall.shared.options.localResources.keys.sorted().joined(separator: ","),
+      deviceId: factory.makeDeviceId()
     )
 
     var deviceDictionary = template.toDictionary()
 
-    let enrichmentDict = enrichment?.device.dictionaryObject ?? [:]
+    let enrichmentDict: [String: Any] = $enrichment.withSnapshot { enrichment in
+      enrichment?.device.dictionaryObject ?? [:]
+    }
     // Merge in enrichment dictionary, giving priority to
     // the existing values.
     deviceDictionary.merge(enrichmentDict) { current, _ in current }

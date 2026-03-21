@@ -4,6 +4,7 @@
 //
 //  Created by Yusuf Tör on 04/03/2022.
 //
+// swiftlint:disable file_length
 
 import Foundation
 
@@ -37,8 +38,27 @@ struct Endpoint<Kind: EndpointKind, Response: Decodable> {
       let defaultComponents = factory.makeDefaultComponents(host: components.host ?? .base)
       var component = URLComponents()
       component.scheme = defaultComponents.scheme
-      component.host = defaultComponents.host
-      component.port = defaultComponents.port
+
+      // Handle local environment where host contains port (e.g., "localhost:3000")
+      let host = defaultComponents.host
+      if case .local = defaultComponents.networkEnvironment,
+        host.contains(":") {
+        let hostParts = host.split(separator: ":")
+        if hostParts.count == 2,
+          let portString = hostParts.last,
+          let port = Int(portString),
+          let firstHostPart = hostParts.first {
+          component.host = String(firstHostPart)
+          component.port = port
+        } else {
+          component.host = host
+          component.port = defaultComponents.port
+        }
+      } else {
+        component.host = host
+        component.port = defaultComponents.port
+      }
+
       component.queryItems = components.queryItems
       component.path = defaultComponents.path + components.path
 
@@ -302,17 +322,64 @@ extension Endpoint where
   }
 }
 
-// MARK: - Web2App
+// MARK: - IntroOfferToken
 extension Endpoint where
-  Kind == EndpointKinds.Web2App,
+  Kind == EndpointKinds.SubscriptionsAPI,
+  Response == IntroOfferTokenWrapper {
+  static func getIntroOfferToken(
+    productIds: [String],
+    appTransactionId: String,
+    allowIntroductoryOffer: Bool
+  ) -> Self {
+    let products = productIds.map { productId in
+      IntroOfferEligibilityRequest.Product(
+        productId: productId,
+        transactionId: appTransactionId
+      )
+    }
+
+    let body = IntroOfferEligibilityRequest(
+      allowIntroductoryOffer: allowIntroductoryOffer,
+      products: products
+    )
+    let bodyData = try? JSONEncoder().encode(body)
+
+    return Endpoint(
+      components: Components(
+        host: .subscriptionsApi,
+        path: "app-store/intro-eligibility/jws",
+        bodyData: bodyData
+      ),
+      method: .post
+    )
+  }
+}
+
+
+// MARK: - SubscriptionsAPI
+extension Endpoint where
+  Kind == EndpointKinds.SubscriptionsAPI,
   Response == RedeemResponse {
   static func redeem(request: RedeemRequest) -> Self {
     let bodyData = try? JSONEncoder().encode(request)
 
     return Endpoint(
       components: Components(
-        host: .web2app,
+        host: .subscriptionsApi,
         path: "redeem",
+        bodyData: bodyData
+      ),
+      method: .post
+    )
+  }
+
+  static func pollRedemptionResult(request: PollRedemptionResultRequest) -> Self {
+    let bodyData = try? JSONEncoder().encode(request)
+
+    return Endpoint(
+      components: Components(
+        host: .subscriptionsApi,
+        path: "checkout/session/poll-redemption-result",
         bodyData: bodyData
       ),
       method: .post
@@ -321,9 +388,9 @@ extension Endpoint where
 }
 
 extension Endpoint where
-  Kind == EndpointKinds.Web2App,
-  Response == WebEntitlements {
-  static func redeem(
+  Kind == EndpointKinds.SubscriptionsAPI,
+  Response == EntitlementsResponse {
+  static func entitlements(
     appUserId: String?,
     deviceId: String
   ) -> Self {
@@ -331,9 +398,26 @@ extension Endpoint where
 
     return Endpoint(
       components: Components(
-        host: .web2app,
+        host: .subscriptionsApi,
         path: "users/\(appUserId ?? deviceId)/entitlements",
         queryItems: queryItems
+      ),
+      method: .get
+    )
+  }
+}
+
+// MARK: - Superwall Products
+extension Endpoint where
+  Kind == EndpointKinds.SubscriptionsAPI,
+  Response == SuperwallProductsResponse {
+  /// Fetches all products from the subscriptions API.
+  /// The application is inferred from the SDK's public API key.
+  static func superwallProducts() -> Self {
+    return Endpoint(
+      components: Components(
+        host: .subscriptionsApi,
+        path: "products"
       ),
       method: .get
     )
