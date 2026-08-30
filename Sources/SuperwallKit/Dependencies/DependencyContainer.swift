@@ -38,6 +38,7 @@ final class DependencyContainer {
   var productsManager: ProductsManager!
   var entitlementsInfo: EntitlementsInfo!
   var attributionPoster: AttributionPoster!
+  var mmpAttributionManager: MMPAttributionManager!
   var webEntitlementRedeemer: WebEntitlementRedeemer!
   var deepLinkRouter: DeepLinkRouter!
   var attributionFetcher: AttributionFetcher!
@@ -48,11 +49,13 @@ final class DependencyContainer {
   let paywallArchiveManager = PaywallArchiveManager()
 
   init(
+    apiKey: String = "",
     purchaseController controller: PurchaseController? = nil,
     options: SuperwallOptions? = nil
   ) {
     delegateAdapter = SuperwallDelegateAdapter()
     storage = Storage(factory: self)
+    storage.configure(apiKey: apiKey)
     entitlementsInfo = EntitlementsInfo(
       storage: storage,
       delegateAdapter: delegateAdapter
@@ -156,6 +159,14 @@ final class DependencyContainer {
         self?.delegateAdapter.userAttributesDidChange(newAttributes: newAttributes)
       }
     }
+
+    // Created after `identityManager` since it reads the current user's
+    // attributes when merging install-attribution results.
+    mmpAttributionManager = MMPAttributionManager(
+      network: network,
+      storage: storage,
+      identityManager: identityManager
+    )
 
     testModeManager = TestModeManager(
       identityManager: identityManager,
@@ -312,7 +323,8 @@ extension DependencyContainer: ViewControllerFactory {
       webView: webView,
       webEntitlementRedeemer: webEntitlementRedeemer,
       cache: cache,
-      paywallArchiveManager: paywallArchiveManager
+      paywallArchiveManager: paywallArchiveManager,
+      customCallbackRegistry: customCallbackRegistry
     )
 
     webView.delegate = paywallViewController
@@ -500,6 +512,14 @@ extension DependencyContainer: StoreTransactionFactory {
   func makeStoreTransaction(from transaction: SK2Transaction) async -> StoreTransaction {
     return StoreTransaction(
       transaction: SK2StoreTransaction(transaction: transaction),
+      configRequestId: configManager.config?.requestId ?? "",
+      appSessionId: appSessionManager.appSession.id
+    )
+  }
+
+  func makeStoreTransaction(from transaction: CustomStoreTransaction) async -> StoreTransaction {
+    return StoreTransaction(
+      transaction: transaction,
       configRequestId: configManager.config?.requestId ?? "",
       appSessionId: appSessionManager.appSession.id
     )

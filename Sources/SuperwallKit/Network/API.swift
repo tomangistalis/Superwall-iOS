@@ -13,6 +13,8 @@ enum EndpointHost {
   case enrichment
   case adServices
   case subscriptionsApi
+  case paywallsV2
+  case mmp
 }
 
 protocol ApiHostConfig {
@@ -34,6 +36,8 @@ struct Api {
   let enrichment: Enrichment
   let adServices: AdServices
   let subscriptionsApi: SubscriptionsAPI
+  let paywallsV2: PaywallsV2
+  let mmp: MMP
 
   init(networkEnvironment: SuperwallOptions.NetworkEnvironment) {
     base = Base(networkEnvironment: networkEnvironment)
@@ -41,6 +45,8 @@ struct Api {
     enrichment = Enrichment(networkEnvironment: networkEnvironment)
     adServices = AdServices(networkEnvironment: networkEnvironment)
     subscriptionsApi = SubscriptionsAPI(networkEnvironment: networkEnvironment)
+    paywallsV2 = PaywallsV2(networkEnvironment: networkEnvironment)
+    mmp = MMP(networkEnvironment: networkEnvironment)
   }
 
   func getConfig(host: EndpointHost) -> ApiHostConfig {
@@ -55,6 +61,10 @@ struct Api {
       return adServices
     case .subscriptionsApi:
       return subscriptionsApi
+    case .paywallsV2:
+      return paywallsV2
+    case .mmp:
+      return mmp
     }
   }
 
@@ -104,6 +114,29 @@ struct Api {
     let networkEnvironment: SuperwallOptions.NetworkEnvironment
     var host: String { return networkEnvironment.web2AppHost }
     var path: String { return "/subscriptions-api/public/v1/" }
+
+    init(networkEnvironment: SuperwallOptions.NetworkEnvironment) {
+      self.networkEnvironment = networkEnvironment
+    }
+  }
+
+  /// The Superwall V2 API, served under a `/v2/` path on `api.superwall.com`
+  /// (production) / `api.superwall.dev` (developer). See
+  /// `NetworkEnvironment.apiV2Host`.
+  struct PaywallsV2: ApiHostConfig {
+    let networkEnvironment: SuperwallOptions.NetworkEnvironment
+    var host: String { return networkEnvironment.apiV2Host }
+    var path: String { return "/v2/" }
+
+    init(networkEnvironment: SuperwallOptions.NetworkEnvironment) {
+      self.networkEnvironment = networkEnvironment
+    }
+  }
+
+  struct MMP: ApiHostConfig {
+    let networkEnvironment: SuperwallOptions.NetworkEnvironment
+    var host: String { return networkEnvironment.mmpHost }
+    var path: String { return "/" }
 
     init(networkEnvironment: SuperwallOptions.NetworkEnvironment) {
       self.networkEnvironment = networkEnvironment

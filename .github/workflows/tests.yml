@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/tests.yml'
       - 'project.yml'
+      - 'scripts/**'
       - '**/*.swift'
       - '!Examples/**'
   workflow_dispatch:
@@ -20,8 +21,23 @@ jobs:
     steps:
       - name: Git Checkout
         uses: actions/checkout@v3
+      - name: Select Xcode
+        # macos-26 runners ship multiple Xcodes but `xcodebuild` defaults
+        # to whatever the runner image picked at provision time, which
+        # lags behind the latest installed version. The SK2 billing-plan
+        # work needs the iOS 26.4 SDK (`Product.SubscriptionInfo.PricingTerms`),
+        # so pin to the latest stable Xcode the runner has available.
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
       - name: xcodegen
         uses: xavierLowmiller/xcodegen-action@1.2.3
       - name: Run Tests
         run: |
-          xcodebuild -project SuperwallKit.xcodeproj -scheme SuperwallKit -sdk iphonesimulator -destination 'platform=iOS Simulator,OS=latest,name=iPhone 17 Pro' test
+          xcodebuild -project SuperwallKit.xcodeproj -scheme SuperwallKit -sdk iphonesimulator -destination 'platform=iOS Simulator,OS=latest,name=iPhone 17 Pro' -derivedDataPath .build test
+      # Whether a permission API name reaches the shipped binary is invisible to the
+      # test suite — it depends on what the compiler emits, not on what the code
+      # returns. Scan the binary the tests just built.
+      - name: Scan for privacy API signatures
+        run: |
+          ./scripts/scan-privacy-signatures.sh .build/Build/Products/Debug-iphonesimulator/SuperwallKit.framework/SuperwallKit

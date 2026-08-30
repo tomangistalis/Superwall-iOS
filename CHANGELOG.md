@@ -2,6 +2,110 @@
 
 The changelog for `SuperwallKit`. Also see the [releases](https://github.com/superwall/Superwall-iOS/releases) on GitHub.
 
+## 4.16.4
+
+### Fixes
+
+- Fixes subscribers with an unexpired subscription being reported as `inactive` on cold launch when the App Store has no purchases to report. Refunded and expired App Store subscriptions still deactivate immediately.
+- Fixes a data race during SDK configuration that Thread Sanitizer flagged on every launch.
+- Fixes issue where paying web users could end up having a temporary inactive subscription status if the server temporarily returns no entitlement data for them.
+
+## 4.16.3
+
+### Fixes
+
+- Fixes a build error when compiling the SDK with Xcode 26.0.
+
+## 4.16.2
+
+### Enhancements
+
+- Adds the user's system-wide text size (Dynamic Type) as three device attributes for use in paywalls and audience filters: `fontScale`, `fontSize`, and `preferredContentSizeCategory`.
+- Links subscriptions to the user server-side after successful purchase or restore.
+
+### Fixes
+
+- Fixes issue on localized paywalls where the default language would briefly show before re-rendering once device attributes arrive.
+- Fixes a crash when an audience filter contains an expression that can't be evaluated, such as a computed property with an unquoted argument (`daysSince(app_install)`). Updates Superscript to 1.0.15, which also stops any future evaluation failure from aborting the app. View the original Rust release changelog [here](https://github.com/superwall/superscript/releases/tag/1.0.15).
+- Fixes network requests that can never succeed, such as those with an invalid API key, taking up to a minute to fail instead of failing straight away. Timeouts and server errors still retry as before.
+- Fixes failed network requests being reported as a decoding error rather than the HTTP error that actually occurred.
+- Fixes issue where the paywall debugger wouldn't work for accounts with many paywalls.
+- Fixes Main Thread Checker warnings caused by reading the device's interface style and text size from a background thread.
+- Prevents unused App Tracking Transparency support from triggering App Store Connect tracking warnings.
+- Stops Apple's microphone, location, and contacts class and selector names appearing in your app's binary when you don't use those permissions.
+- Fixes the app's accent color resetting to the system blue when configuring the SDK from a SwiftUI `App` initializer.
+
+## 4.16.1
+
+### Enhancements
+
+- Clarifies that `IntegrationAttribute.onesignalId` should be set to the OneSignal User ID used by the OneSignal integration.
+
+### Fixes
+
+- Makes sure that the compiler directive is correct for billing plan types so that the SDK builds in Xcode version 26.4.
+
+## 4.16.0
+
+### Enhancements
+
+- Adds install attribution matching support. If you set up performance marketing integrations on the Superwall dashboard, the SDK will attempt to match the install and track an `attribution_match` event. The attribution properties will be added to user attributes so that they can be used as breakdowns and filters in the charts.
+- Adds support for annual subscriptions that are billed monthly.
+- Added `EventTrackingBehavior` enum and `SuperwallOptions.eventTrackingBehavior` property for GDPR-compliant event collection control. Use `.all` (default) to track everything, `.superwallOnly` to suppress user-initiated tracking, trigger fires, and user-attribute updates while keeping internal SDK events, or `.none` to stop all event collection entirely. The behavior can also be changed at runtime via `Superwall.shared.eventTrackingBehavior`.
+- Deprecated `SuperwallOptions.isExternalDataCollectionEnabled`. Setting it to `false` now maps to `.superwallOnly`; setting it back to `true` maps to `.all`.
+
+### Fixes
+
+- Fixes a crash due to concurrent calls to `preloadAllPaywalls`.
+- Fixes an intro offer eligibility mismatch between the paywall and the payment sheet when upgrading/crossgrading/downgrading.
+
+## 4.15.4
+
+### Enhancements
+
+- Adds `singularDeviceId` as an `IntegrationAttribute`.
+
+## 4.15.3
+
+### Fixes
+
+- Fixes computed period prices (`weeklyPrice`, `dailyPrice`) being off by a small amount for products whose subscription period is expressed in days.
+
+## 4.15.2
+
+### Enhancements
+
+- Improves Apple Search Ads attribution capture rate.
+
+### Fixes
+
+- Changes the Superscript spm package repo source to a new lightweight repo meaning that the download of the package is way faster.
+- Filters out the all-zeros IDFA sentinel (returned when App Tracking Transparency is denied) so it no longer pollutes the `idfa` attribute on attribution payloads.
+
+## 4.15.1
+
+### Enhancements
+
+- Adds an `onCustomCallback` parameter to `getPaywall`.
+- `SuperwallOptions.localResources` now accepts UIImage's from xcasset files, e.g. `UIImage(named: "my-image")`.
+- Exposes abandoned transaction product params in audience filters.
+
+### Fixes
+
+- Sanitizes email user attribute.
+
+## 4.15.0
+
+### Enhancements
+
+- Adds support for custom store products. This allows you to purchase products that are on stores outside of the App Store using the `PurchaseController`.
+- Adds `formUnion` override when unioning sets of `Entitlement` objects.
+
+### Fixes
+
+- Fixes issue where test mode products had trial price data missing.
+- Fixed computed period prices (`weeklyPrice`, `dailyPrice`, `monthlyPrice`, `yearlyPrice`) displaying incorrectly rounded values on StoreKit 2 in production. For example, a £4.99/week product could show as £5.00/week. This was caused by Apple's `priceFormatStyle` applying storefront-specific rounding to computed values.
+
 ## 4.14.2
 
 ### Enhancements

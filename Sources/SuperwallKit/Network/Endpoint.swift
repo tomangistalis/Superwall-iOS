@@ -91,7 +91,7 @@ extension Endpoint where
   Kind == EndpointKinds.Superwall,
   Response == EventsResponse {
   static func events(eventsRequest: EventsRequest) -> Self {
-    let bodyData = try? JSONEncoder.toSnakeCase.encode(eventsRequest)
+    let bodyData = try? Kind.jsonEncoder.encode(eventsRequest)
 
     return Endpoint(
       components: Components(
@@ -104,7 +104,7 @@ extension Endpoint where
   }
 
   static func sessionEvents(_ session: SessionEventsRequest) -> Self {
-    let bodyData = try? JSONEncoder.toSnakeCase.encode(session)
+    let bodyData = try? Kind.jsonEncoder.encode(session)
 
     return Endpoint(
       components: Components(
@@ -142,10 +142,10 @@ extension Endpoint where
       )
     } else if let placement = placement {
       let bodyDict = ["event": placement.jsonData]
-      bodyData = try? JSONEncoder.toSnakeCase.encode(bodyDict)
+      bodyData = try? Kind.jsonEncoder.encode(bodyDict)
     } else if let appUserId = appUserId {
       let body = PaywallRequestBody(appUserId: appUserId)
-      bodyData = try? JSONEncoder.toSnakeCase.encode(body)
+      bodyData = try? Kind.jsonEncoder.encode(body)
     }
 
     return Endpoint(
@@ -207,15 +207,45 @@ extension Endpoint where
   }
 }
 
-// MARK: - PaywallsResponse
+// MARK: - PaywallSummary
 extension Endpoint where
   Kind == EndpointKinds.Superwall,
-  Response == Paywalls {
-  static func paywalls() -> Self {
+  Response == PaywallSummary {
+  /// Resolves a numeric paywall database id to its identifier (slug).
+  ///
+  /// Used by the debug/preview flow so it no longer has to fetch every paywall
+  /// for the app just to translate a deep-link `paywall_id` into an identifier.
+  static func resolvePaywall(
+    byDatabaseId databaseId: String,
+    retryCount: Int
+  ) -> Self {
     return Endpoint(
+      retryCount: retryCount,
       components: Components(
-        host: .base,
-        path: "paywalls"
+        host: .paywallsV2,
+        path: "paywalls/resolve",
+        queryItems: [URLQueryItem(name: "id", value: databaseId)]
+      ),
+      method: .get
+    )
+  }
+}
+
+// MARK: - PaywallPreviewList
+extension Endpoint where
+  Kind == EndpointKinds.Superwall,
+  Response == PaywallPreviewList {
+  /// Lists the paywalls available to preview for the application in the
+  /// debugger's signed preview token.
+  ///
+  /// Backs the debugger's "Your Paywalls" picker. Returns id/identifier/name
+  /// only.
+  static func listPreviewPaywalls(retryCount: Int) -> Self {
+    return Endpoint(
+      retryCount: retryCount,
+      components: Components(
+        host: .paywallsV2,
+        path: "paywalls/preview-list"
       ),
       method: .get
     )
@@ -263,7 +293,7 @@ extension Endpoint where
   static func confirmAssignments(
     _ assignments: PostbackAssignmentWrapper
   ) -> Self {
-    let bodyData = try? JSONEncoder.toSnakeCase.encode(assignments)
+    let bodyData = try? Kind.jsonEncoder.encode(assignments)
 
     return Endpoint(
       components: Components(
@@ -285,7 +315,7 @@ extension Endpoint where
     maxRetry: Int,
     timeout: Seconds?
   ) -> Self {
-    let bodyData = try? JSONEncoder.toSnakeCase.encode(request)
+    let bodyData = try? Kind.jsonEncoder.encode(request)
 
     return Endpoint(
       retryCount: maxRetry,
@@ -307,7 +337,7 @@ extension Endpoint where
   Response == AdServicesResponse {
   static func adServices(token: String) -> Self {
     let body = ["token": token]
-    let bodyData = try? JSONEncoder.toSnakeCase.encode(body)
+    let bodyData = try? Kind.jsonEncoder.encode(body)
 
     return Endpoint(
       retryCount: 3,
@@ -342,7 +372,7 @@ extension Endpoint where
       allowIntroductoryOffer: allowIntroductoryOffer,
       products: products
     )
-    let bodyData = try? JSONEncoder().encode(body)
+    let bodyData = try? Kind.jsonEncoder.encode(body)
 
     return Endpoint(
       components: Components(
@@ -361,7 +391,7 @@ extension Endpoint where
   Kind == EndpointKinds.SubscriptionsAPI,
   Response == RedeemResponse {
   static func redeem(request: RedeemRequest) -> Self {
-    let bodyData = try? JSONEncoder().encode(request)
+    let bodyData = try? Kind.jsonEncoder.encode(request)
 
     return Endpoint(
       components: Components(
@@ -374,7 +404,7 @@ extension Endpoint where
   }
 
   static func pollRedemptionResult(request: PollRedemptionResultRequest) -> Self {
-    let bodyData = try? JSONEncoder().encode(request)
+    let bodyData = try? Kind.jsonEncoder.encode(request)
 
     return Endpoint(
       components: Components(
@@ -420,6 +450,25 @@ extension Endpoint where
         path: "products"
       ),
       method: .get
+    )
+  }
+}
+
+// MARK: - MMP
+extension Endpoint where
+  Kind == EndpointKinds.SubscriptionsAPI,
+  Response == MMPMatchResponse {
+  static func matchMMPInstall(request: MMPMatchRequest) -> Self {
+    let bodyData = try? Kind.jsonEncoder.encode(request)
+
+    return Endpoint(
+      retryCount: 2,
+      components: Components(
+        host: .mmp,
+        path: "api/match",
+        bodyData: bodyData
+      ),
+      method: .post
     )
   }
 }

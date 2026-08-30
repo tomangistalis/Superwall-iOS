@@ -4,25 +4,33 @@
 //
 //  Created by Yusuf Tör on 11/07/2022.
 //
+// swiftlint:disable file_length
 
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Options for configuring Superwall, including paywall presentation and appearance.
 ///
 /// Pass an instance of this class to
 /// ``Superwall/configure(apiKey:purchaseController:options:completion:)-52tke``.
+// swiftlint:disable type_body_length
 @objc(SWKSuperwallOptions)
 @objcMembers
 public final class SuperwallOptions: NSObject, Encodable {
   /// Configures the appearance and behaviour of paywalls.
   public var paywalls = PaywallOptions()
 
-  /// A mapping of local resource IDs to local file URLs.
+  /// A mapping of local resource IDs to ``AssetResource`` values.
   ///
-  /// Use this to serve paywall assets (images, videos, Lottie animations) from local files
-  /// instead of fetching them over the network. When a paywall references a `localResourceId`,
-  /// the SDK will look up the corresponding URL in this dictionary and serve the file via the
-  /// `swlocal://` URL scheme.
+  /// Use this to serve paywall assets (images, videos, Lottie animations) from the app
+  /// bundle or an asset catalog instead of fetching them over the network. When a paywall
+  /// references a `localResourceId`, the SDK looks up the corresponding entry here and
+  /// serves it via the `swlocal://` URL scheme.
+  ///
+  /// `URL` conforms to ``AssetResource`` so file-URL call sites keep working. Register an
+  /// `.xcassets` Image Set by passing a `UIImage`.
   ///
   /// Set this before calling ``Superwall/configure(apiKey:purchaseController:options:completion:)-52tke``
   /// to ensure resources are available before any paywall can trigger (e.g. on `app_launch`).
@@ -30,12 +38,45 @@ public final class SuperwallOptions: NSObject, Encodable {
   /// ```swift
   /// let options = SuperwallOptions()
   /// options.localResources = [
-  ///   "hero-video": Bundle.main.url(forResource: "onboarding", withExtension: "mp4")!,
+  ///   "logo":       UIImage(named: "Logo")!,
   ///   "hero-image": Bundle.main.url(forResource: "hero", withExtension: "png")!
   /// ]
   /// Superwall.configure(apiKey: "your-api-key", options: options)
   /// ```
-  public var localResources: [String: URL] = [:]
+  @nonobjc public var localResources: [String: AssetResource] = [:]
+
+  /// Objective-C bridge for ``localResources``. Accepts `NSURL` and `UIImage` values
+  /// (mirroring the Swift surface); any other value type is dropped.
+  @available(swift, obsoleted: 1.0)
+  @objc(localResources)
+  public var localResourcesObjC: [String: NSObject] {
+    get {
+      return localResources.compactMapValues { resource in
+        if let url = resource as? URL {
+          return url as NSURL
+        }
+        #if canImport(UIKit)
+        if let image = resource as? UIImage {
+          return image
+        }
+        #endif
+        return nil
+      }
+    }
+    set {
+      localResources = newValue.compactMapValues { value in
+        if let url = value as? URL {
+          return url
+        }
+        #if canImport(UIKit)
+        if let image = value as? UIImage {
+          return image
+        }
+        #endif
+        return nil
+      }
+    }
+  }
 
   /// Controls when the SDK enters test mode.
   @objc(SWKTestModeBehavior)
@@ -175,6 +216,24 @@ public final class SuperwallOptions: NSObject, Encodable {
       }
     }
 
+    /// Host for the Superwall V2 API (the `apps/api` Cloudflare Worker), whose
+    /// routes live under a `/v2/` path.
+    ///
+    /// This is a DIFFERENT host from ``baseHost`` (the legacy v1 API on
+    /// `api.superwall.me`): the V2 API is served from the `superwall.com`
+    /// domain — `api.superwall.com` in production and `api.superwall.dev` in the
+    /// developer/staging environment.
+    var apiV2Host: String {
+      switch self {
+      case .developer:
+        return "api.superwall.dev"
+      case .local:
+        return "localhost:3001"
+      default:
+        return "api.superwall.com"
+      }
+    }
+
     /// The base URL for the Superwall dashboard.
     var dashboardBaseUrl: String {
       switch self {
@@ -227,6 +286,18 @@ public final class SuperwallOptions: NSObject, Encodable {
       }
     }
 
+    var mmpHost: String {
+      switch self {
+      case .developer,
+        .custom:
+        return "mmp.superwall.dev"
+      case .local:
+        return "localhost:3045"
+      default:
+        return "mmp.superwall.com"
+      }
+    }
+
     private enum CodingKeys: String, CodingKey {
       case networkEnvironment
       case customDomain
@@ -256,12 +327,35 @@ public final class SuperwallOptions: NSObject, Encodable {
   /// - Note: You cannot use ``Superwall/purchase(_:)`` while this is `true`.
   public var shouldObservePurchases = false
 
+  /// Controls which events are sent to the Superwall servers.
+  ///
+  /// Defaults to ``EventTrackingBehavior/all``. Set this to ``EventTrackingBehavior/superwallOnly``
+  /// to suppress user-initiated tracking, trigger fires, and user-attribute updates, or to
+  /// ``EventTrackingBehavior/none`` to stop all event collection (e.g. for GDPR compliance).
+  ///
+  /// You can also change this at runtime via ``Superwall/eventTrackingBehavior``.
+  public var eventTrackingBehavior: EventTrackingBehavior = .all
+
   /// Enables the sending of non-Superwall tracked events and properties back to the Superwall servers.
   /// Defaults to `true`.
   ///
-  /// Set this to `false` to stop external data collection. This will not affect
-  /// your ability to create placements based on properties.
-  public var isExternalDataCollectionEnabled = true
+  /// - Warning: Deprecated. Use ``eventTrackingBehavior`` instead.
+  ///   Setting this to `false` maps to ``EventTrackingBehavior/superwallOnly`` unless the current
+  ///   value is already ``EventTrackingBehavior/none``, in which case `.none` is preserved.
+  ///   Setting it back to `true` maps to ``EventTrackingBehavior/all``.
+  @available(*, deprecated, renamed: "eventTrackingBehavior")
+  public var isExternalDataCollectionEnabled: Bool {
+    get {
+      return eventTrackingBehavior == .all
+    }
+    set {
+      if newValue {
+        eventTrackingBehavior = .all
+      } else if eventTrackingBehavior != .none {
+        eventTrackingBehavior = .superwallOnly
+      }
+    }
+  }
 
   /// Sets the device locale identifier to use when evaluating audience filters.
   ///
@@ -333,6 +427,7 @@ public final class SuperwallOptions: NSObject, Encodable {
   public var logging = Logging()
 
   private enum CodingKeys: String, CodingKey {
+    case eventTrackingBehavior
     case isExternalDataCollectionEnabled
     case localeIdentifier
     case isGameControllerEnabled
@@ -368,7 +463,11 @@ public final class SuperwallOptions: NSObject, Encodable {
     try networkEnvironment.encode(to: encoder)
     try logging.encode(to: encoder)
 
-    try container.encode(isExternalDataCollectionEnabled, forKey: .isExternalDataCollectionEnabled)
+    try container.encode(eventTrackingBehavior.description, forKey: .eventTrackingBehavior)
+    // Keep emitting the deprecated `isExternalDataCollectionEnabled` boolean so
+    // backends/dashboards still reading it don't treat opted-out clients as the
+    // default. Mirrors the deprecated property (true only for `.all`).
+    try container.encode(eventTrackingBehavior == .all, forKey: .isExternalDataCollectionEnabled)
     try container.encode(localeIdentifier, forKey: .localeIdentifier)
     try container.encode(isGameControllerEnabled, forKey: .isGameControllerEnabled)
     try container.encode(storeKitVersion.description, forKey: .storeKitVersion)

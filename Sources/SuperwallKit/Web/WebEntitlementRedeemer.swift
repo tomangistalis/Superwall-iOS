@@ -112,12 +112,17 @@ actor WebEntitlementRedeemer {
       name: UIApplication.willEnterForegroundNotification,
       object: nil
     )
+  }
 
-    // Also check once on SDK initialization so pending Stripe checkouts can be
-    // recovered on cold launch. Guard on factory readiness to avoid accessing
-    // dependencies (e.g. deviceHelper) before the container is fully set up.
+  /// Checks once on SDK initialization so pending Stripe checkouts can be
+  /// recovered on cold launch.
+  ///
+  /// Called by `Superwall` after the dependency container is fully built,
+  /// rather than from this actor's own `init`: the poll reads container state
+  /// from a background task, so it must not start while the container is
+  /// still being set up.
+  nonisolated func pollPendingStripeCheckoutOnColdLaunch() {
     Task {
-      guard factory.makeIsContainerReady() else { return }
       await pollPendingStripeCheckoutOnForegroundIfNeeded()
     }
   }
@@ -627,8 +632,8 @@ actor WebEntitlementRedeemer {
           title: title,
           message: message,
           closeActionTitle: closeActionTitle,
-          onClose: {
-            Task { [weak self] in
+          onClose: { [weak self] in
+            Task {
               await afterRedeem()
               await self?.clearPendingStripeCheckoutState()
             }
@@ -639,8 +644,8 @@ actor WebEntitlementRedeemer {
           title: title,
           message: message,
           closeActionTitle: closeActionTitle,
-          onClose: {
-            Task { [weak self] in
+          onClose: { [weak self] in
+            Task {
               await afterRedeem()
               await self?.clearPendingStripeCheckoutState()
             }
@@ -919,6 +924,31 @@ actor WebEntitlementRedeemer {
         appUserId: factory.makeAppUserId(),
         deviceId: factory.makeDeviceId()
       )
+
+      // A response with zero entitlements must not replace cached web
+      // entitlements that are still within their expiry date. The server
+      // reports a revocation by returning the entitlement as inactive —
+      // and it enumerates every config-mapped entitlement even for users
+      // with no purchases — so a fully empty array is a backend or config
+      // artifact (alias mismatch, failed upstream lookup), not a
+      // revocation. Real revocations arrive non-empty and apply
+      // immediately through the save below. If an empty response replaced
+      // the cache, the next cold launch would read the user as inactive
+      // until a network poll recovered them. Entitlements with no expiry
+      // date are not protected by this guard. We skip saving the fetch
+      // date so the next poll retries without waiting out
+      // `entitlementsMaxAge`.
+      let hasUnexpiredWebEntitlements = existingWebEntitlements.contains {
+        $0.isActive && ($0.expiresAt ?? .distantPast) > Date()
+      }
+      if response.customerInfo.entitlements.isEmpty && hasUnexpiredWebEntitlements {
+        Logger.debug(
+          logLevel: .warn,
+          scope: .webEntitlements,
+          message: "Ignoring empty web entitlements response because unexpired web entitlements are cached."
+        )
+        return
+      }
 
       // Update the latest redeem response with the entitlements and customer info from the response.
       if var latestRedeemResponse = storage.get(LatestRedeemResponse.self) {
