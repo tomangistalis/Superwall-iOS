@@ -24,7 +24,9 @@ final class DebugPaywallPickerViewController: UIViewController {
     table.separatorColor = UIColor.white.withAlphaComponent(0.1)
     table.dataSource = self
     table.delegate = self
+    #if !os(visionOS)
     table.keyboardDismissMode = .onDrag
+    #endif
     table.translatesAutoresizingMaskIntoConstraints = false
     return table
   }()
