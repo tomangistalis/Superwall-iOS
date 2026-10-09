@@ -7,7 +7,7 @@ let package = Package(
   name: "SuperwallKit",
   defaultLocalization: "en",
   platforms: [
-    .iOS(.v13),
+    .iOS(.v15),
     .macOS(.v10_12),
     .watchOS("6.2")
   ],
